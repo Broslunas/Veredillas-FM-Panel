@@ -12,6 +12,8 @@ export interface IComment extends Document {
   attachments?: string[];
   isVerified: boolean;
   rating: number;
+  verificationToken?: string;
+  deletionToken?: string;
 }
 
 const CommentSchema = new Schema<IComment>(
