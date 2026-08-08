@@ -9,6 +9,19 @@ export interface IUser extends Document {
   picture?: string;
   bio?: string;
   role: 'user' | 'admin' | 'owner';
+  favorites?: string[];
+  listeningTime?: number;
+  completedEpisodes?: string[];
+  playbackHistory?: {
+    episodeSlug: string;
+    progress: number;
+    duration: number;
+    listenedAt: Date;
+    completed: boolean;
+  }[];
+  currentStreak?: number;
+  maxStreak?: number;
+  newsletter?: boolean;
   lastLogin: Date;
   lastActiveAt: Date;
   createdAt: Date;
@@ -24,10 +37,23 @@ const userSchema = new Schema<IUser>(
     picture: { type: String },
     bio: { type: String, maxlength: 500 },
     role: { type: String, enum: ['user', 'admin', 'owner'], default: 'user' },
+    favorites: { type: [String], default: [] },
+    listeningTime: { type: Number, default: 0 },
+    completedEpisodes: { type: [String], default: [] },
+    playbackHistory: [{
+      episodeSlug: { type: String, required: true },
+      progress: { type: Number, default: 0 },
+      duration: { type: Number, default: 0 },
+      listenedAt: { type: Date, default: Date.now },
+      completed: { type: Boolean, default: false }
+    }],
+    currentStreak: { type: Number, default: 0 },
+    maxStreak: { type: Number, default: 0 },
+    newsletter: { type: Boolean, default: true },
     lastLogin: { type: Date, default: Date.now },
     lastActiveAt: { type: Date, default: Date.now },
   },
-  { timestamps: true }
+  { timestamps: true, strict: false }
 );
 
 if (mongoose.models.User) {
@@ -36,3 +62,4 @@ if (mongoose.models.User) {
 
 const User = mongoose.model<IUser>('User', userSchema);
 export default User;
+

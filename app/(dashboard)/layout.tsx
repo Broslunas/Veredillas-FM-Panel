@@ -13,6 +13,7 @@ import {
   Shield,
   Loader2,
   Plus,
+  BarChart3,
 } from 'lucide-react';
 
 interface UserSession {
@@ -76,6 +77,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const navItems = [
     { label: 'Visión General', href: '/', icon: LayoutDashboard },
+    { label: 'Analíticas', href: '/user-stats', icon: BarChart3 },
     { label: 'Episodios', href: '/episodes', icon: Radio },
     { label: 'Blog', href: '/blog', icon: FileText },
     { label: 'Invitados', href: '/guests', icon: Users },
