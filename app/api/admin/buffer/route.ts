@@ -19,17 +19,17 @@ export async function GET(request: Request) {
       });
     }
 
+    // Step 1: Get organization ID
     const orgQuery = `
       query {
         account {
           organizations {
             id
-            channels { id name service formatted_username: name }
           }
         }
       }`;
 
-    const orgRes = await fetch('https://api.buffer.com/1/graphql', {
+    const orgRes = await fetch('https://api.buffer.com', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -38,7 +38,18 @@ export async function GET(request: Request) {
       body: JSON.stringify({ query: orgQuery }),
     });
 
-    const orgData = await orgRes.json();
+    const orgText = await orgRes.text();
+    let orgData: any;
+    try {
+      orgData = JSON.parse(orgText);
+    } catch {
+      return NextResponse.json({
+        configured: true,
+        error: `Buffer API devolvió una respuesta inválida (HTTP ${orgRes.status}): ${orgText.substring(0, 200)}`,
+        profiles: [],
+        scheduledPosts: [],
+      });
+    }
 
     if (orgData.errors) {
       return NextResponse.json({
@@ -59,8 +70,37 @@ export async function GET(request: Request) {
       });
     }
 
-    const profiles = org.channels || [];
     const orgId = org.id;
+
+    // Step 2: Get channels (top-level query, not nested inside organizations)
+    const channelsQuery = `
+      query GetChannels($organizationId: OrganizationId!) {
+        channels(input: { organizationId: $organizationId }) {
+          id
+          name
+          service
+        }
+      }`;
+
+    const channelsRes = await fetch('https://api.buffer.com', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${BUFFER_TOKEN}`,
+      },
+      body: JSON.stringify({ query: channelsQuery, variables: { organizationId: orgId } }),
+    });
+
+    let profiles: any[] = [];
+    try {
+      const channelsText = await channelsRes.text();
+      const channelsData = JSON.parse(channelsText);
+      if (!channelsData.errors) {
+        profiles = channelsData.data?.channels || [];
+      }
+    } catch {
+      // Channels query failed, continue without profiles
+    }
 
     const postsQuery = `
       query GetPosts($orgId: OrganizationId!) {
@@ -76,7 +116,7 @@ export async function GET(request: Request) {
         }
       }`;
 
-    const postsRes = await fetch('https://api.buffer.com/1/graphql', {
+    const postsRes = await fetch('https://api.buffer.com', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -85,7 +125,18 @@ export async function GET(request: Request) {
       body: JSON.stringify({ query: postsQuery, variables: { orgId } }),
     });
 
-    const postsData = await postsRes.json();
+    const postsText = await postsRes.text();
+    let postsData: any;
+    try {
+      postsData = JSON.parse(postsText);
+    } catch {
+      return NextResponse.json({
+        configured: true,
+        error: `Buffer API (Posts) devolvió una respuesta inválida (HTTP ${postsRes.status}): ${postsText.substring(0, 200)}`,
+        profiles,
+        scheduledPosts: [],
+      });
+    }
 
     if (postsData.errors) {
       return NextResponse.json({
