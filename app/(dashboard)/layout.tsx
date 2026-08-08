@@ -19,6 +19,7 @@ import {
   Calendar,
   Video,
   Share2,
+  Activity,
 } from 'lucide-react';
 
 interface UserSession {
@@ -82,6 +83,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const navItems = [
     { label: 'Visión General', href: '/', icon: LayoutDashboard },
+    { label: 'En Vivo', href: '/live', icon: Activity },
     { label: 'Usuarios', href: '/users', icon: Users },
     { label: 'Comentarios', href: '/comments', icon: MessageSquare },
     { label: 'Entrevistas', href: '/interviews', icon: Calendar },
