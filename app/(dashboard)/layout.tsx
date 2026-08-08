@@ -15,6 +15,7 @@ import {
   Plus,
   BarChart3,
   UserCheck,
+  MessageSquare,
 } from 'lucide-react';
 
 interface UserSession {
@@ -79,6 +80,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const navItems = [
     { label: 'Visión General', href: '/', icon: LayoutDashboard },
     { label: 'Usuarios', href: '/users', icon: Users },
+    { label: 'Comentarios', href: '/comments', icon: MessageSquare },
     { label: 'Analíticas', href: '/user-stats', icon: BarChart3 },
     { label: 'Episodios', href: '/episodes', icon: Radio },
     { label: 'Blog', href: '/blog', icon: FileText },
