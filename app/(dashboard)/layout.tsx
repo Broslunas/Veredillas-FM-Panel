@@ -17,6 +17,7 @@ import {
   UserCheck,
   MessageSquare,
   Calendar,
+  Video,
 } from 'lucide-react';
 
 interface UserSession {
@@ -83,6 +84,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { label: 'Usuarios', href: '/users', icon: Users },
     { label: 'Comentarios', href: '/comments', icon: MessageSquare },
     { label: 'Entrevistas', href: '/interviews', icon: Calendar },
+    { label: 'Highlights Studio', href: '/social-clips', icon: Video },
     { label: 'Analíticas', href: '/user-stats', icon: BarChart3 },
     { label: 'Episodios', href: '/episodes', icon: Radio },
     { label: 'Blog', href: '/blog', icon: FileText },
