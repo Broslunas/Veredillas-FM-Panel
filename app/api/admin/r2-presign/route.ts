@@ -1,22 +1,8 @@
 import { NextResponse } from 'next/server';
 import { isAuthorizedAdmin } from '@/lib/api-guard';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-
-const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID;
-const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID;
-const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY;
-const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME || 'veredillasfm';
-const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || 'https://cdn.veredillasfm.es';
-
-const r2Client = new S3Client({
-  region: 'auto',
-  endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId: R2_ACCESS_KEY_ID || '',
-    secretAccessKey: R2_SECRET_ACCESS_KEY || '',
-  },
-});
+import { getBucketByType, getS3ClientForBucket, buildPublicUrl } from '@/lib/r2';
 
 export async function POST(request: Request) {
   try {
@@ -31,19 +17,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Faltan parámetros (fileName, contentType)' }, { status: 400 });
     }
 
+    const bucket = await getBucketByType('multimedia');
+    if (!bucket) {
+      return NextResponse.json({ error: 'No hay ningún bucket predeterminado configurado para multimedia' }, { status: 500 });
+    }
+
     const timestamp = Date.now();
     const sanitizedName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
     const key = `social-clips/${timestamp}_${sanitizedName}`;
 
     const command = new PutObjectCommand({
-      Bucket: R2_BUCKET_NAME,
+      Bucket: bucket.bucketName,
       Key: key,
       ContentType: contentType,
     });
 
     // Presigned URL valid for 30 minutes
-    const presignedUrl = await getSignedUrl(r2Client, command, { expiresIn: 1800 });
-    const publicUrl = `${R2_PUBLIC_URL}/${key}`;
+    const client = getS3ClientForBucket(bucket);
+    const presignedUrl = await getSignedUrl(client, command, { expiresIn: 1800 });
+    const publicUrl = buildPublicUrl(bucket, key);
 
     return NextResponse.json({ presignedUrl, publicUrl, key });
   } catch (error) {

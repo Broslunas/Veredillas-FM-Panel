@@ -1,0 +1,581 @@
+'use client';
+
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  HardDrive,
+  Plus,
+  Edit3,
+  Trash2,
+  Star,
+  Image as ImageIcon,
+  Music,
+  Loader2,
+  X,
+  Save,
+  ShieldAlert,
+} from 'lucide-react';
+
+const HARD_MAX_GB = 9.2;
+const HARD_MAX_BYTES = Math.floor(HARD_MAX_GB * 1024 ** 3);
+
+type BucketType = 'images' | 'multimedia';
+
+interface BucketItem {
+  id: string;
+  label: string;
+  bucketName: string;
+  type: BucketType;
+  isDefault: boolean;
+  isActive: boolean;
+  accountId: string;
+  accessKeyId: string;
+  hasSecret: boolean;
+  endpoint: string;
+  publicUrlBase: string;
+  maxBytes: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface UsageInfo {
+  totalBytes: number;
+  totalObjects: number;
+  maxBytes: number;
+}
+
+interface BucketFormState {
+  label: string;
+  bucketName: string;
+  type: BucketType;
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  endpoint: string;
+  publicUrlBase: string;
+  maxBytesGb: string;
+  isDefault: boolean;
+  isActive: boolean;
+}
+
+const emptyForm: BucketFormState = {
+  label: '',
+  bucketName: '',
+  type: 'multimedia',
+  accountId: '',
+  accessKeyId: '',
+  secretAccessKey: '',
+  endpoint: '',
+  publicUrlBase: '',
+  maxBytesGb: String(HARD_MAX_GB),
+  isDefault: false,
+  isActive: true,
+};
+
+function formatSize(bytes: number) {
+  if (!bytes) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+}
+
+export default function BucketsAdminPage() {
+  const router = useRouter();
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authorized, setAuthorized] = useState(false);
+
+  const [buckets, setBuckets] = useState<BucketItem[]>([]);
+  const [usage, setUsage] = useState<Record<string, UsageInfo>>({});
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingBucket, setEditingBucket] = useState<BucketItem | null>(null);
+  const [form, setForm] = useState<BucketFormState>(emptyForm);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/auth/me');
+        const data = await res.json().catch(() => null);
+        const role = data?.user?.role;
+        if (!res.ok || !data?.user || (role !== 'admin' && role !== 'owner')) {
+          setAuthorized(false);
+        } else {
+          setAuthorized(true);
+        }
+      } catch {
+        setAuthorized(false);
+      } finally {
+        setAuthChecked(true);
+      }
+    }
+    checkAuth();
+  }, []);
+
+  const loadBuckets = useCallback(async () => {
+    setLoading(true);
+    setErrorMessage(null);
+    try {
+      const res = await fetch('/api/admin/buckets');
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || 'Error al cargar los buckets');
+      }
+      const data = await res.json();
+      const list: BucketItem[] = data.buckets || [];
+      setBuckets(list);
+
+      const usageEntries = await Promise.all(
+        list.map(async (bucket) => {
+          try {
+            const usageRes = await fetch(`/api/admin/buckets/${bucket.id}/usage`);
+            if (!usageRes.ok) return [bucket.id, null] as const;
+            const usageData = await usageRes.json();
+            return [bucket.id, usageData as UsageInfo] as const;
+          } catch {
+            return [bucket.id, null] as const;
+          }
+        })
+      );
+
+      setUsage(
+        usageEntries.reduce((acc, [id, value]) => {
+          if (value) acc[id] = value;
+          return acc;
+        }, {} as Record<string, UsageInfo>)
+      );
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Error al cargar los buckets');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authorized) loadBuckets();
+  }, [authorized, loadBuckets]);
+
+  const grouped = useMemo(() => {
+    return {
+      images: buckets.filter((b) => b.type === 'images'),
+      multimedia: buckets.filter((b) => b.type === 'multimedia'),
+    };
+  }, [buckets]);
+
+  const openCreateModal = () => {
+    setEditingBucket(null);
+    setForm(emptyForm);
+    setFormError(null);
+    setModalOpen(true);
+  };
+
+  const openEditModal = (bucket: BucketItem) => {
+    setEditingBucket(bucket);
+    setForm({
+      label: bucket.label,
+      bucketName: bucket.bucketName,
+      type: bucket.type,
+      accountId: bucket.accountId,
+      accessKeyId: bucket.accessKeyId,
+      secretAccessKey: '',
+      endpoint: bucket.endpoint,
+      publicUrlBase: bucket.publicUrlBase,
+      maxBytesGb: String(bucket.maxBytes / 1024 ** 3),
+      isDefault: bucket.isDefault,
+      isActive: bucket.isActive,
+    });
+    setFormError(null);
+    setModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setModalOpen(false);
+    setEditingBucket(null);
+  };
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setFormError(null);
+
+    const maxBytesGbNum = Number(form.maxBytesGb);
+    if (Number.isNaN(maxBytesGbNum) || maxBytesGbNum <= 0) {
+      setFormError('El límite debe ser un número mayor que 0.');
+      return;
+    }
+    if (maxBytesGbNum > HARD_MAX_GB) {
+      setFormError(`El límite no puede superar los ${HARD_MAX_GB}GB.`);
+      return;
+    }
+
+    if (!editingBucket && !form.secretAccessKey) {
+      setFormError('La secret access key es obligatoria al crear un bucket.');
+      return;
+    }
+
+    const payload: Record<string, unknown> = {
+      label: form.label,
+      bucketName: form.bucketName,
+      type: form.type,
+      accountId: form.accountId,
+      accessKeyId: form.accessKeyId,
+      endpoint: form.endpoint,
+      publicUrlBase: form.publicUrlBase,
+      maxBytes: Math.floor(maxBytesGbNum * 1024 ** 3),
+      isDefault: form.isDefault,
+      isActive: form.isActive,
+    };
+    if (form.secretAccessKey) {
+      payload.secretAccessKey = form.secretAccessKey;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch(editingBucket ? `/api/admin/buckets/${editingBucket.id}` : '/api/admin/buckets', {
+        method: editingBucket ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || 'Error al guardar el bucket');
+      }
+
+      closeModal();
+      await loadBuckets();
+    } catch (err: any) {
+      setFormError(err.message || 'Error al guardar el bucket');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (bucket: BucketItem) => {
+    if (!confirm(`¿Eliminar el bucket "${bucket.label}"? Esto no borra los archivos en Cloudflare R2.`)) return;
+
+    setDeletingId(bucket.id);
+    setErrorMessage(null);
+    try {
+      const res = await fetch(`/api/admin/buckets/${bucket.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || 'Error al eliminar el bucket');
+      }
+      await loadBuckets();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Error al eliminar el bucket');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  if (!authChecked) {
+    return (
+      <div className="p-8 flex items-center justify-center text-zinc-400">
+        <Loader2 className="w-6 h-6 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!authorized) {
+    return (
+      <div className="p-8 flex flex-col items-center justify-center gap-3 text-zinc-400">
+        <ShieldAlert className="w-10 h-10 text-amber-400" />
+        <p>Solo los administradores y propietarios pueden gestionar los buckets R2.</p>
+        <button
+          onClick={() => router.push('/')}
+          className="rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition"
+        >
+          Volver al panel
+        </button>
+      </div>
+    );
+  }
+
+  const renderBucketCard = (bucket: BucketItem) => {
+    const usageInfo = usage[bucket.id];
+    const percent = usageInfo ? Math.min(100, Math.round((usageInfo.totalBytes / bucket.maxBytes) * 100)) : null;
+
+    return (
+      <div key={bucket.id} className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="truncate text-sm font-semibold text-zinc-100">{bucket.label}</p>
+              {bucket.isDefault && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+                  <Star className="w-3 h-3" /> Predeterminado
+                </span>
+              )}
+              {!bucket.isActive && (
+                <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-medium text-zinc-400">
+                  Inactivo
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-zinc-500">{bucket.bucketName}</p>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <button
+              onClick={() => openEditModal(bucket)}
+              className="rounded-xl bg-zinc-900 p-2 text-zinc-300 hover:bg-zinc-800 transition"
+              title="Editar"
+            >
+              <Edit3 className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => handleDelete(bucket)}
+              disabled={deletingId === bucket.id}
+              className="rounded-xl bg-red-700/10 p-2 text-red-300 hover:bg-red-700/20 transition"
+              title="Eliminar"
+            >
+              {deletingId === bucket.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          {usageInfo ? (
+            <>
+              <div className="flex items-center justify-between text-xs text-zinc-400">
+                <span>{formatSize(usageInfo.totalBytes)} / {formatSize(bucket.maxBytes)}</span>
+                <span>{percent}%</span>
+              </div>
+              <div className="mt-2 h-2 rounded-full bg-zinc-900 overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${percent !== null && percent >= 90 ? 'bg-red-500' : 'bg-indigo-500'}`}
+                  style={{ width: `${percent ?? 0}%` }}
+                />
+              </div>
+              <p className="mt-1 text-[11px] text-zinc-600">{usageInfo.totalObjects} archivo(s)</p>
+            </>
+          ) : (
+            <p className="text-xs text-zinc-600">Calculando uso...</p>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="p-6 md:p-8 space-y-6 max-w-6xl mx-auto w-full">
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-zinc-100">
+            <HardDrive className="w-5 h-5 text-amber-400" />
+            <h1 className="text-xl font-semibold">Buckets R2</h1>
+          </div>
+          <p className="text-sm text-zinc-400 max-w-2xl">
+            Gestiona los buckets de Cloudflare R2 y sus credenciales. Límite máximo por bucket: {HARD_MAX_GB}GB.
+          </p>
+        </div>
+        <button
+          onClick={openCreateModal}
+          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition"
+        >
+          <Plus className="w-4 h-4" /> Nuevo bucket
+        </button>
+      </div>
+
+      {errorMessage && (
+        <div className="rounded-2xl border border-red-800/50 bg-red-950/30 px-4 py-3 text-sm text-red-300">
+          {errorMessage}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex items-center justify-center p-10 text-zinc-400">
+          <Loader2 className="w-6 h-6 animate-spin" />
+        </div>
+      ) : (
+        <>
+          <section className="space-y-3">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-200">
+              <ImageIcon className="w-4 h-4 text-indigo-400" /> Imágenes y otros
+            </h2>
+            {grouped.images.length === 0 ? (
+              <p className="text-sm text-zinc-500">No hay buckets de este tipo todavía.</p>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">{grouped.images.map(renderBucketCard)}</div>
+            )}
+          </section>
+
+          <section className="space-y-3">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-200">
+              <Music className="w-4 h-4 text-indigo-400" /> Multimedia (audio / vídeo)
+            </h2>
+            {grouped.multimedia.length === 0 ? (
+              <p className="text-sm text-zinc-500">No hay buckets de este tipo todavía.</p>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">{grouped.multimedia.map(renderBucketCard)}</div>
+            )}
+          </section>
+        </>
+      )}
+
+      {modalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 overflow-y-auto">
+          <div className="w-full max-w-lg rounded-3xl border border-zinc-800 bg-zinc-950 shadow-2xl shadow-black/60">
+            <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
+              <p className="text-sm font-semibold text-zinc-100">
+                {editingBucket ? 'Editar bucket' : 'Nuevo bucket'}
+              </p>
+              <button onClick={closeModal} className="rounded-lg bg-zinc-900 p-2 text-zinc-300 hover:bg-zinc-800 transition">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="max-h-[75vh] overflow-y-auto p-5 space-y-4">
+              {formError && (
+                <div className="rounded-xl border border-red-800/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+                  {formError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="col-span-2 text-xs text-zinc-400">
+                  Nombre descriptivo
+                  <input
+                    required
+                    value={form.label}
+                    onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
+                    className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-indigo-500 focus:outline-none"
+                  />
+                </label>
+
+                <label className="text-xs text-zinc-400">
+                  Nombre del bucket en R2
+                  <input
+                    required
+                    value={form.bucketName}
+                    onChange={(e) => setForm((f) => ({ ...f, bucketName: e.target.value }))}
+                    className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-indigo-500 focus:outline-none"
+                  />
+                </label>
+
+                <label className="text-xs text-zinc-400">
+                  Tipo
+                  <select
+                    value={form.type}
+                    onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as BucketType }))}
+                    className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-indigo-500 focus:outline-none"
+                  >
+                    <option value="images">Imágenes y otros</option>
+                    <option value="multimedia">Multimedia (audio/vídeo)</option>
+                  </select>
+                </label>
+
+                <label className="text-xs text-zinc-400">
+                  Account ID
+                  <input
+                    required
+                    value={form.accountId}
+                    onChange={(e) => setForm((f) => ({ ...f, accountId: e.target.value }))}
+                    className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-indigo-500 focus:outline-none"
+                  />
+                </label>
+
+                <label className="text-xs text-zinc-400">
+                  Access Key ID
+                  <input
+                    required
+                    value={form.accessKeyId}
+                    onChange={(e) => setForm((f) => ({ ...f, accessKeyId: e.target.value }))}
+                    className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-indigo-500 focus:outline-none"
+                  />
+                </label>
+
+                <label className="col-span-2 text-xs text-zinc-400">
+                  Secret Access Key
+                  <input
+                    type="password"
+                    value={form.secretAccessKey}
+                    onChange={(e) => setForm((f) => ({ ...f, secretAccessKey: e.target.value }))}
+                    placeholder={editingBucket ? 'Dejar en blanco para no cambiarla' : ''}
+                    className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-indigo-500 focus:outline-none"
+                  />
+                </label>
+
+                <label className="col-span-2 text-xs text-zinc-400">
+                  Endpoint S3 de R2
+                  <input
+                    required
+                    value={form.endpoint}
+                    onChange={(e) => setForm((f) => ({ ...f, endpoint: e.target.value }))}
+                    placeholder="https://<account_id>.r2.cloudflarestorage.com"
+                    className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-indigo-500 focus:outline-none"
+                  />
+                </label>
+
+                <label className="col-span-2 text-xs text-zinc-400">
+                  URL pública / CDN
+                  <input
+                    required
+                    value={form.publicUrlBase}
+                    onChange={(e) => setForm((f) => ({ ...f, publicUrlBase: e.target.value }))}
+                    placeholder="https://cdn.ejemplo.com"
+                    className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-indigo-500 focus:outline-none"
+                  />
+                </label>
+
+                <label className="text-xs text-zinc-400">
+                  Límite de almacenamiento (GB, máx. {HARD_MAX_GB})
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    max={HARD_MAX_GB}
+                    required
+                    value={form.maxBytesGb}
+                    onChange={(e) => setForm((f) => ({ ...f, maxBytesGb: e.target.value }))}
+                    className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-indigo-500 focus:outline-none"
+                  />
+                </label>
+
+                <div className="flex flex-col justify-end gap-2 text-xs text-zinc-300">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={form.isDefault}
+                      onChange={(e) => setForm((f) => ({ ...f, isDefault: e.target.checked }))}
+                    />
+                    Predeterminado para este tipo
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={form.isActive}
+                      onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.checked }))}
+                    />
+                    Activo
+                  </label>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={saving}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 transition disabled:cursor-not-allowed disabled:bg-zinc-700"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" /> Guardando...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" /> Guardar
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

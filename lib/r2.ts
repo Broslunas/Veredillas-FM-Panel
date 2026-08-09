@@ -9,78 +9,93 @@ import {
   CopyObjectCommand,
 } from '@aws-sdk/client-s3';
 import dbConnect from '@/lib/mongodb';
-import R2BucketQuota from '@/models/R2BucketQuota';
+import R2Bucket, { IR2Bucket, R2BucketType } from '@/models/R2Bucket';
+import { decryptSecret } from '@/lib/encryption';
 
-// ── Audio / General Bucket ──
-const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID || '1bdeaebce2649429d4562a6272fd127c';
-const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || '33479da4b52490f9a9bbff3e4a2c92cb';
-const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY || '3b7b01723ef853c1b31b4324021144846a29d8b4b71246eac96dda446877a860';
-export const BUCKET_NAME = process.env.R2_BUCKET_NAME || 'vfm-bucket-01';
-const R2_ENDPOINT = process.env.R2_ENDPOINT || `https://${R2_ACCOUNT_ID}.eu.r2.cloudflarestorage.com`;
-const R2_PUBLIC_BASE = process.env.R2_PUBLIC_URL || `https://pub-${R2_ACCOUNT_ID}.r2.dev`;
+export type R2UploadTarget = 'auto' | 'image' | 'audio' | 'video';
 
-export const r2Client = new S3Client({
-  region: 'auto',
-  endpoint: R2_ENDPOINT,
-  credentials: {
-    accessKeyId: R2_ACCESS_KEY_ID,
-    secretAccessKey: R2_SECRET_ACCESS_KEY,
-  },
-});
-
-// ── Images Public CDN Bucket (cdn.veredillasfm.es) ──
-const IMAGE_R2_ACCOUNT_ID = process.env.IMAGE_R2_ACCOUNT_ID || 'eb7cdbc609e3329015726445b7f28415';
-const IMAGE_R2_ACCESS_KEY_ID = process.env.IMAGE_R2_ACCESS_KEY_ID || '1ab50cd2f17f894744fef5a26c1005f7';
-const IMAGE_R2_SECRET_ACCESS_KEY = process.env.IMAGE_R2_SECRET_ACCESS_KEY || '091414247b8327ca8234316560c609a917592f15c087e9fd927313c590b5c273';
-export const IMAGE_BUCKET_NAME = process.env.IMAGE_R2_BUCKET_NAME || 'radioveredillas';
-const IMAGE_R2_ENDPOINT = process.env.IMAGE_R2_ENDPOINT || `https://${IMAGE_R2_ACCOUNT_ID}.eu.r2.cloudflarestorage.com`;
-export const IMAGE_CDN_BASE = process.env.IMAGE_CDN_URL || 'https://cdn.veredillasfm.es';
-
-export const imageR2Client = new S3Client({
-  region: 'auto',
-  endpoint: IMAGE_R2_ENDPOINT,
-  credentials: {
-    accessKeyId: IMAGE_R2_ACCESS_KEY_ID,
-    secretAccessKey: IMAGE_R2_SECRET_ACCESS_KEY,
-  },
-});
+const s3ClientCache = new Map<string, S3Client>();
 
 export function isImageContentType(contentType: string, fileName: string): boolean {
   if (contentType.startsWith('image/')) return true;
   return /\.(png|jpg|jpeg|webp|gif|svg|avif)$/i.test(fileName);
 }
 
-export type R2UploadTarget = 'auto' | 'image' | 'audio' | 'video';
-
-export const KNOWN_R2_BUCKETS = [BUCKET_NAME, IMAGE_BUCKET_NAME] as const;
-
-function getMediaTypeFromKey(key: string) {
-  const lowerKey = key.toLowerCase();
+function getMediaTypeFromFile(contentType: string, fileName: string) {
   return {
-    isImage: !!lowerKey.match(/\.(png|jpe?g|webp|gif|svg|avif)$/i),
-    isAudio: !!lowerKey.match(/\.(mp3|wav|m4a|ogg|flac)$/i),
-    isVideo: !!lowerKey.match(/\.(mp4|webm|mov|mkv|avi)$/i),
+    isImage: isImageContentType(contentType, fileName),
+    isAudio: contentType.startsWith('audio/') || /\.(mp3|wav|m4a|aac|flac|ogg)$/i.test(fileName),
+    isVideo: contentType.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi)$/i.test(fileName),
   };
 }
 
-export function getR2PublicUrl(key: string, isImage: boolean = false): string {
-  if (key.startsWith('http://') || key.startsWith('https://')) return key;
-  const cleanKey = key.replace(/^\//, '');
-  if (isImage) {
-    return `${IMAGE_CDN_BASE}/${cleanKey}`;
+async function resolveBucketByName(bucketName: string): Promise<IR2Bucket> {
+  await dbConnect();
+  const bucket = await R2Bucket.findOne({ bucketName }).lean<IR2Bucket>();
+  if (!bucket) {
+    throw new Error(`No se encontró el bucket "${bucketName}" en la base de datos`);
   }
-  return `${R2_PUBLIC_BASE}/${cleanKey}`;
+  return bucket;
 }
 
-export async function getBucketUsage(bucket: string) {
-  const client = bucket === IMAGE_BUCKET_NAME ? imageR2Client : r2Client;
+export async function getBucketByType(type: R2BucketType): Promise<IR2Bucket | null> {
+  await dbConnect();
+  return R2Bucket.findOne({ type, isDefault: true, isActive: true }).lean<IR2Bucket>();
+}
+
+export function getS3ClientForBucket(bucket: IR2Bucket): S3Client {
+  const cacheKey = `${bucket._id}:${new Date(bucket.updatedAt).getTime()}`;
+  const cached = s3ClientCache.get(cacheKey);
+  if (cached) return cached;
+
+  const client = new S3Client({
+    region: 'auto',
+    endpoint: bucket.endpoint,
+    credentials: {
+      accessKeyId: bucket.accessKeyId,
+      secretAccessKey: decryptSecret(bucket.secretAccessKeyEncrypted),
+    },
+  });
+
+  s3ClientCache.set(cacheKey, client);
+  return client;
+}
+
+export function buildPublicUrl(bucket: IR2Bucket, key: string): string {
+  if (key.startsWith('http://') || key.startsWith('https://')) return key;
+  const cleanKey = key.replace(/^\//, '');
+  return `${bucket.publicUrlBase.replace(/\/+$/, '')}/${cleanKey}`;
+}
+
+export function serializeBucketForClient(bucket: IR2Bucket) {
+  return {
+    id: bucket._id.toString(),
+    label: bucket.label,
+    bucketName: bucket.bucketName,
+    type: bucket.type,
+    isDefault: bucket.isDefault,
+    isActive: bucket.isActive,
+    accountId: bucket.accountId,
+    accessKeyId: bucket.accessKeyId,
+    hasSecret: Boolean(bucket.secretAccessKeyEncrypted),
+    endpoint: bucket.endpoint,
+    publicUrlBase: bucket.publicUrlBase,
+    maxBytes: bucket.maxBytes,
+    createdAt: bucket.createdAt,
+    updatedAt: bucket.updatedAt,
+  };
+}
+
+export async function getBucketUsage(bucketName: string) {
+  const bucket = await resolveBucketByName(bucketName);
+  const client = getS3ClientForBucket(bucket);
   let continuationToken: string | undefined;
   let totalBytes = 0;
   let totalObjects = 0;
 
   do {
     const listCommand = new ListObjectsV2Command({
-      Bucket: bucket,
+      Bucket: bucket.bucketName,
       Prefix: '',
       ContinuationToken: continuationToken,
       MaxKeys: 1000,
@@ -100,12 +115,6 @@ export async function getBucketUsage(bucket: string) {
   return { totalBytes, totalObjects };
 }
 
-export async function getBucketQuota(bucket: string): Promise<number | null> {
-  await dbConnect();
-  const quota = await R2BucketQuota.findOne({ bucket }).lean();
-  return quota?.maxBytes ?? null;
-}
-
 export async function uploadFileToR2(
   fileBuffer: Buffer,
   fileName: string,
@@ -113,13 +122,33 @@ export async function uploadFileToR2(
   folder: string = 'uploads',
   target: R2UploadTarget = 'auto'
 ): Promise<{ key: string; url: string; bucket: string }> {
-  await dbConnect();
+  const { isImage, isAudio, isVideo } = getMediaTypeFromFile(contentType, fileName);
+
+  let resolvedType: R2BucketType = 'multimedia';
+  let resolvedFolder = folder.replace(/^\/+|\/+$/g, '') || 'uploads';
+
+  if (target === 'image' || (target === 'auto' && isImage)) {
+    resolvedType = 'images';
+    resolvedFolder = resolvedFolder || 'images';
+  } else if (target === 'video' || (target === 'auto' && isVideo)) {
+    resolvedType = 'multimedia';
+    resolvedFolder = resolvedFolder || 'videos';
+  } else if (target === 'audio' || (target === 'auto' && isAudio)) {
+    resolvedType = 'multimedia';
+    resolvedFolder = resolvedFolder || 'audios';
+  }
+
+  const bucket = await getBucketByType(resolvedType);
+  if (!bucket) {
+    throw new Error(`No hay ningún bucket predeterminado configurado para el tipo "${resolvedType}"`);
+  }
+
   const extension = extname(fileName).toLowerCase();
   const baseName = fileName.replace(new RegExp(`${extension}$`, 'i'), '') || 'file';
   const slugName = baseName
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\p{Diacritic}/gu, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '')
@@ -127,40 +156,16 @@ export async function uploadFileToR2(
   const randomSuffix = randomBytes(4).toString('hex');
   const safeName = `${slugName || 'file'}-${randomSuffix}${extension}`;
 
-  const normalizedFolder = folder.replace(/^\/+|\/+$/g, '') || 'uploads';
-  const isImage = isImageContentType(contentType, fileName);
-  const isAudio = contentType.startsWith('audio/') || /\.(mp3|wav|m4a|aac|flac|ogg)$/i.test(fileName);
-  const isVideo = contentType.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi)$/i.test(fileName);
-
-  let resolvedBucket = BUCKET_NAME;
-  let resolvedFolder = normalizedFolder;
-
-  if (target === 'video' || isVideo) {
-    resolvedBucket = BUCKET_NAME;
-    resolvedFolder = normalizedFolder || 'videos';
-  } else if (target === 'audio' || isAudio) {
-    resolvedBucket = IMAGE_BUCKET_NAME;
-    resolvedFolder = normalizedFolder || 'audios';
-  } else if (target === 'image' || isImage) {
-    resolvedBucket = IMAGE_BUCKET_NAME;
-    resolvedFolder = normalizedFolder || 'images';
-  } else {
-    resolvedBucket = BUCKET_NAME;
-    resolvedFolder = normalizedFolder || 'uploads';
-  }
-
-  const currentUsage = await getBucketUsage(resolvedBucket);
-  const maxBytes = await getBucketQuota(resolvedBucket);
-  if (maxBytes !== null && currentUsage.totalBytes + fileBuffer.length > maxBytes) {
+  const currentUsage = await getBucketUsage(bucket.bucketName);
+  if (currentUsage.totalBytes + fileBuffer.length > bucket.maxBytes) {
     throw new Error('Límite de bucket alcanzado. No se puede subir este archivo.');
   }
 
   const key = `${resolvedFolder}/${safeName}`;
-  const client = resolvedBucket === IMAGE_BUCKET_NAME ? imageR2Client : r2Client;
-  const publicBase = resolvedBucket === IMAGE_BUCKET_NAME ? IMAGE_CDN_BASE : R2_PUBLIC_BASE;
+  const client = getS3ClientForBucket(bucket);
 
   const command = new PutObjectCommand({
-    Bucket: resolvedBucket,
+    Bucket: bucket.bucketName,
     Key: key,
     Body: fileBuffer,
     ContentType: contentType,
@@ -168,21 +173,24 @@ export async function uploadFileToR2(
 
   await client.send(command);
 
-  const url = `${publicBase}/${key}`;
-
-  return { key, url, bucket: resolvedBucket };
+  return { key, url: buildPublicUrl(bucket, key), bucket: bucket.bucketName };
 }
 
-export async function deleteR2File(key: string, bucket?: string): Promise<boolean> {
+export async function deleteR2File(key: string, bucketName?: string): Promise<boolean> {
+  if (!bucketName) {
+    console.error('deleteR2File: se requiere el nombre del bucket');
+    return false;
+  }
+
   try {
     const isUrl = key.startsWith('http://') || key.startsWith('https://');
     const cleanKey = isUrl ? key.replace(/^https?:\/\/[^\/]+\//, '') : key.replace(/^\/+/, '');
 
-    const useBucket = bucket || (key.includes('cdn.veredillasfm.es') ? IMAGE_BUCKET_NAME : BUCKET_NAME);
-    const client = useBucket === IMAGE_BUCKET_NAME ? imageR2Client : r2Client;
+    const bucket = await resolveBucketByName(bucketName);
+    const client = getS3ClientForBucket(bucket);
 
     const command = new DeleteObjectCommand({
-      Bucket: useBucket,
+      Bucket: bucket.bucketName,
       Key: cleanKey,
     });
     await client.send(command);
@@ -193,17 +201,18 @@ export async function deleteR2File(key: string, bucket?: string): Promise<boolea
   }
 }
 
-export async function deleteR2Prefix(bucket: string, prefix: string): Promise<boolean> {
+export async function deleteR2Prefix(bucketName: string, prefix: string): Promise<boolean> {
   try {
     const cleanPrefix = prefix.replace(/^\/+/, '');
-    const client = bucket === IMAGE_BUCKET_NAME ? imageR2Client : r2Client;
+    const bucket = await resolveBucketByName(bucketName);
+    const client = getS3ClientForBucket(bucket);
 
     const objectsToDelete: { Key: string }[] = [];
     let continuationToken: string | undefined;
 
     do {
       const listCommand = new ListObjectsV2Command({
-        Bucket: bucket,
+        Bucket: bucket.bucketName,
         Prefix: cleanPrefix,
         ContinuationToken: continuationToken,
         MaxKeys: 1000,
@@ -226,7 +235,7 @@ export async function deleteR2Prefix(bucket: string, prefix: string): Promise<bo
     for (let i = 0; i < objectsToDelete.length; i += 1000) {
       const chunk = objectsToDelete.slice(i, i + 1000);
       const deleteCommand = new DeleteObjectsCommand({
-        Bucket: bucket,
+        Bucket: bucket.bucketName,
         Delete: {
           Objects: chunk,
           Quiet: true,
@@ -242,23 +251,25 @@ export async function deleteR2Prefix(bucket: string, prefix: string): Promise<bo
   }
 }
 
-export async function renameR2File(bucket: string, sourceKey: string, destinationKey: string): Promise<boolean> {
+export async function renameR2File(bucketName: string, sourceKey: string, destinationKey: string): Promise<boolean> {
   const cleanSourceKey = sourceKey.replace(/^\/+/, '');
   const cleanDestinationKey = destinationKey.replace(/^\/+/, '');
-  const client = bucket === IMAGE_BUCKET_NAME ? imageR2Client : r2Client;
-  const encodedSourceKey = encodeURIComponent(cleanSourceKey).replace(/%2F/g, '/');
 
   try {
+    const bucket = await resolveBucketByName(bucketName);
+    const client = getS3ClientForBucket(bucket);
+    const encodedSourceKey = encodeURIComponent(cleanSourceKey).replace(/%2F/g, '/');
+
     const copyCommand = new CopyObjectCommand({
-      Bucket: bucket,
+      Bucket: bucket.bucketName,
       Key: cleanDestinationKey,
-      CopySource: `${bucket}/${encodedSourceKey}`,
+      CopySource: `${bucket.bucketName}/${encodedSourceKey}`,
       MetadataDirective: 'COPY',
     });
     await client.send(copyCommand);
 
     const deleteCommand = new DeleteObjectCommand({
-      Bucket: bucket,
+      Bucket: bucket.bucketName,
       Key: cleanSourceKey,
     });
     await client.send(deleteCommand);
@@ -272,30 +283,29 @@ export async function renameR2File(bucket: string, sourceKey: string, destinatio
 
 export async function listR2Files(prefix: string = '') {
   try {
-    const [imageRes, audioRes] = await Promise.allSettled([
-      imageR2Client.send(new ListObjectsV2Command({ Bucket: IMAGE_BUCKET_NAME, Prefix: prefix, MaxKeys: 100 })),
-      r2Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Prefix: prefix, MaxKeys: 100 })),
-    ]);
+    await dbConnect();
+    const buckets = await R2Bucket.find({ isActive: true }).lean<IR2Bucket[]>();
 
-    const imageFiles = imageRes.status === 'fulfilled' ? (imageRes.value.Contents || []).map((item) => ({
-      key: item.Key || '',
-      size: item.Size || 0,
-      lastModified: item.LastModified,
-      url: `${IMAGE_CDN_BASE}/${item.Key}`,
-      bucket: IMAGE_BUCKET_NAME,
-      isImage: true,
-    })) : [];
+    const results = await Promise.allSettled(
+      buckets.map(async (bucket) => {
+        const client = getS3ClientForBucket(bucket);
+        const response = await client.send(
+          new ListObjectsV2Command({ Bucket: bucket.bucketName, Prefix: prefix, MaxKeys: 100 })
+        );
+        return (response.Contents || []).map((item) => ({
+          key: item.Key || '',
+          size: item.Size || 0,
+          lastModified: item.LastModified,
+          url: buildPublicUrl(bucket, item.Key || ''),
+          bucket: bucket.bucketName,
+          isImage: bucket.type === 'images',
+        }));
+      })
+    );
 
-    const audioFiles = audioRes.status === 'fulfilled' ? (audioRes.value.Contents || []).map((item) => ({
-      key: item.Key || '',
-      size: item.Size || 0,
-      lastModified: item.LastModified,
-      url: getR2PublicUrl(item.Key || '', false),
-      bucket: BUCKET_NAME,
-      isImage: false,
-    })) : [];
+    const files = results.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
 
-    return [...imageFiles, ...audioFiles].sort(
+    return files.sort(
       (a, b) => new Date(b.lastModified || 0).getTime() - new Date(a.lastModified || 0).getTime()
     );
   } catch (error) {

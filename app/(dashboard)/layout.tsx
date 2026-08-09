@@ -148,9 +148,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { label: 'YouTube Studio', href: '/youtube', icon: YoutubeIcon },
         { label: 'Highlights Studio', href: '/social-clips', icon: Video },
         { label: 'Social Publisher', href: '/buffer', icon: Share2 },
-        ...(user?.role !== 'editor'
+        ...(user?.role === 'admin' || user?.role === 'owner'
           ? [
-              { label: 'Buckets R2', href: '/buckets', icon: HardDrive },
+              { label: 'Buckets R2', href: '/admin/buckets', icon: HardDrive },
             ]
           : []),
       ],

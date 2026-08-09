@@ -32,3 +32,12 @@ export async function isAuthorizedAdmin(request: Request): Promise<{ authorized:
   }
   return { authorized: false, user };
 }
+
+export async function isAuthorizedOwnerOrAdmin(request: Request): Promise<{ authorized: boolean; user?: JWTPayload }> {
+  const user = await getAuthUser(request);
+  if (!user) return { authorized: false };
+  if (user.role === 'admin' || user.role === 'owner') {
+    return { authorized: true, user };
+  }
+  return { authorized: false, user };
+}
