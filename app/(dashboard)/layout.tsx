@@ -81,19 +81,39 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const navItems = [
-    { label: 'Visión General', href: '/', icon: LayoutDashboard },
-    { label: 'En Vivo', href: '/live', icon: Activity },
-    { label: 'Usuarios', href: '/users', icon: Users },
-    { label: 'Comentarios', href: '/comments', icon: MessageSquare },
-    { label: 'Entrevistas', href: '/interviews', icon: Calendar },
-    { label: 'Highlights Studio', href: '/social-clips', icon: Video },
-    { label: 'Social Publisher', href: '/buffer', icon: Share2 },
-    { label: 'Analíticas', href: '/user-stats', icon: BarChart3 },
-    { label: 'Episodios', href: '/episodes', icon: Radio },
-    { label: 'Blog', href: '/blog', icon: FileText },
-    { label: 'Invitados', href: '/guests', icon: UserCheck },
-    { label: 'Medios R2', href: '/media', icon: HardDrive },
+  const navGroups = [
+    {
+      title: 'General',
+      items: [
+        { label: 'Visión General', href: '/', icon: LayoutDashboard },
+        { label: 'En Vivo', href: '/live', icon: Activity },
+      ],
+    },
+    {
+      title: 'Contenido & Redes',
+      items: [
+        { label: 'Episodios', href: '/episodes', icon: Radio },
+        { label: 'Blog', href: '/blog', icon: FileText },
+        { label: 'Highlights Studio', href: '/social-clips', icon: Video },
+        { label: 'Social Publisher', href: '/buffer', icon: Share2 },
+        { label: 'Medios R2', href: '/media', icon: HardDrive },
+      ],
+    },
+    {
+      title: 'Comunidad & Gestión',
+      items: [
+        { label: 'Usuarios', href: '/users', icon: Users },
+        { label: 'Comentarios', href: '/comments', icon: MessageSquare },
+        { label: 'Entrevistas', href: '/interviews', icon: Calendar },
+        { label: 'Invitados', href: '/guests', icon: UserCheck },
+      ],
+    },
+    {
+      title: 'Analíticas',
+      items: [
+        { label: 'Analíticas', href: '/user-stats', icon: BarChart3 },
+      ],
+    },
   ];
 
   return (
@@ -127,27 +147,34 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </Link>
         </div>
 
-        {/* Nav Links */}
-        <nav className="flex-1 p-3 space-y-1">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
+        {/* Nav Links Grouped by Category */}
+        <nav className="flex-1 p-3 space-y-4 overflow-y-auto">
+          {navGroups.map((group) => (
+            <div key={group.title} className="space-y-1">
+              <div className="px-3 text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500 mb-1">
+                {group.title}
+              </div>
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
 
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition ${
-                  isActive
-                    ? 'bg-zinc-800 text-zinc-100 border border-zinc-700/50 shadow-sm'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
-                }`}
-              >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-indigo-400' : 'text-zinc-500'}`} />
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition ${
+                      isActive
+                        ? 'bg-zinc-800 text-zinc-100 border border-zinc-700/50 shadow-sm font-semibold'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 ${isActive ? 'text-indigo-400' : 'text-zinc-500'}`} />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         {/* User Footer */}
