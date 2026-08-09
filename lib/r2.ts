@@ -281,10 +281,12 @@ export async function renameR2File(bucketName: string, sourceKey: string, destin
   }
 }
 
-export async function listR2Files(prefix: string = '') {
+export async function listR2Files(prefix: string = '', bucketName?: string) {
   try {
     await dbConnect();
-    const buckets = await R2Bucket.find({ isActive: true }).lean<IR2Bucket[]>();
+    const query: Record<string, unknown> = { isActive: true };
+    if (bucketName) query.bucketName = bucketName;
+    const buckets = await R2Bucket.find(query).lean<IR2Bucket[]>();
 
     const results = await Promise.allSettled(
       buckets.map(async (bucket) => {
@@ -312,4 +314,41 @@ export async function listR2Files(prefix: string = '') {
     console.error('Error listing R2 files:', error);
     return [];
   }
+}
+
+export async function listR2FolderContents(bucketName: string, prefix: string = '', continuationToken?: string) {
+  const bucket = await resolveBucketByName(bucketName);
+  const client = getS3ClientForBucket(bucket);
+
+  const response = await client.send(
+    new ListObjectsV2Command({
+      Bucket: bucket.bucketName,
+      Prefix: prefix,
+      Delimiter: '/',
+      MaxKeys: 200,
+      ContinuationToken: continuationToken,
+    })
+  );
+
+  const folders = (response.CommonPrefixes || [])
+    .map((item) => item.Prefix || '')
+    .filter(Boolean);
+
+  const files = (response.Contents || [])
+    .filter((item) => item.Key && item.Key !== prefix)
+    .map((item) => ({
+      key: item.Key || '',
+      size: item.Size || 0,
+      lastModified: item.LastModified,
+      url: buildPublicUrl(bucket, item.Key || ''),
+    }));
+
+  return {
+    bucket: bucket.bucketName,
+    isImage: bucket.type === 'images',
+    folders,
+    files,
+    isTruncated: Boolean(response.IsTruncated),
+    nextContinuationToken: response.NextContinuationToken,
+  };
 }

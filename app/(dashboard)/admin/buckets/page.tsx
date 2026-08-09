@@ -14,7 +14,9 @@ import {
   X,
   Save,
   ShieldAlert,
+  Link2,
 } from 'lucide-react';
+import BucketFileBrowser from '@/components/BucketFileBrowser';
 
 const HARD_MAX_GB = 9.2;
 const HARD_MAX_BYTES = Math.floor(HARD_MAX_GB * 1024 ** 3);
@@ -96,6 +98,7 @@ export default function BucketsAdminPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [connectedBucket, setConnectedBucket] = useState<BucketItem | null>(null);
 
   useEffect(() => {
     async function checkAuth() {
@@ -339,6 +342,13 @@ export default function BucketsAdminPage() {
           </div>
         </div>
 
+        <button
+          onClick={() => setConnectedBucket(bucket)}
+          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-indigo-600 hover:text-white transition"
+        >
+          <Link2 className="w-4 h-4" /> Conectar
+        </button>
+
         <div className="mt-4">
           {usageInfo ? (
             <>
@@ -575,6 +585,13 @@ export default function BucketsAdminPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {connectedBucket && (
+        <BucketFileBrowser
+          bucket={connectedBucket}
+          onClose={() => setConnectedBucket(null)}
+        />
       )}
     </div>
   );
