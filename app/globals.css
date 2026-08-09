@@ -14,21 +14,59 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Custom Scrollbar for minimalist dark look */
+/* ── PREMIUM CUSTOM SCROLLBAR DESIGN ── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(99, 102, 241, 0.4) transparent;
+}
+
+/* Webkit browsers (Chrome, Safari, Edge, Opera) */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #09090b;
+  background: transparent;
+  border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #27272a;
-  border-radius: 3px;
+  background: rgba(113, 113, 122, 0.3);
+  border-radius: 9999px;
+  transition: all 0.2s ease-in-out;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+  background: linear-gradient(180deg, #6366f1 0%, #a855f7 100%);
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: #4f46e5;
+}
+
+/* Corner junction */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Custom class for extra subtle scrollbars */
+.subtle-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(63, 63, 70, 0.4) transparent;
+}
+
+.subtle-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.subtle-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(63, 63, 70, 0.5);
+  border-radius: 9999px;
+}
+
+.subtle-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.7);
 }
