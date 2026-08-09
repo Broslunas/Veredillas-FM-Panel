@@ -381,19 +381,6 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
 
         <button
           type="button"
-          onClick={() => changeTab('sections')}
-          className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-2 border-b-2 whitespace-nowrap ${
-            activeTab === 'sections'
-              ? 'border-indigo-500 text-indigo-400 bg-zinc-900/60'
-              : 'border-transparent text-zinc-400 hover:text-zinc-200'
-          }`}
-        >
-          <List className="w-4 h-4" />
-          <span>3. Capítulos / Secciones ({formData.sections.length})</span>
-        </button>
-
-        <button
-          type="button"
           onClick={() => changeTab('transcript')}
           className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-2 border-b-2 whitespace-nowrap ${
             activeTab === 'transcript'
@@ -402,8 +389,22 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
           }`}
         >
           <MessageSquare className="w-4 h-4" />
-          <span>4. Transcripción</span>
+          <span>3. Transcripción</span>
         </button>
+        
+        <button
+          type="button"
+          onClick={() => changeTab('sections')}
+          className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-2 border-b-2 whitespace-nowrap ${
+            activeTab === 'sections'
+              ? 'border-indigo-500 text-indigo-400 bg-zinc-900/60'
+              : 'border-transparent text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          <List className="w-4 h-4" />
+          <span>4. Capítulos / Secciones ({formData.sections.length})</span>
+        </button>
+
 
         <button
           type="button"
@@ -651,56 +652,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
         </div>
       )}
 
-      {/* TAB 3: SECTIONS / CAPÍTULOS */}
-      {activeTab === 'sections' && (
-        <div className="space-y-4 bg-zinc-900/40 p-6 rounded-xl border border-zinc-800/80">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-zinc-200">Secciones y Capítulos del Episodio</h3>
-              <p className="text-xs text-zinc-400">Añade marcas de tiempo para permitir la navegación por capítulos</p>
-            </div>
-
-            <button
-              type="button"
-              onClick={addSection}
-              className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium px-3 py-1.5 rounded-lg transition flex items-center gap-1.5"
-            >
-              <Plus className="w-4 h-4 text-indigo-400" />
-              <span>Añadir Sección</span>
-            </button>
-          </div>
-
-          <div className="space-y-2">
-            {formData.sections.map((sec: any, idx: number) => (
-              <div key={idx} className="flex items-center gap-2 bg-zinc-950 p-2 border border-zinc-800/80 rounded-lg">
-                <input
-                  type="text"
-                  value={sec.time}
-                  onChange={(e) => updateSection(idx, 'time', e.target.value)}
-                  placeholder="00:00"
-                  className="w-24 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs text-zinc-100 font-mono text-center focus:outline-none focus:border-zinc-600"
-                />
-                <input
-                  type="text"
-                  value={sec.title}
-                  onChange={(e) => updateSection(idx, 'title', e.target.value)}
-                  placeholder="Título de la sección (ej: Intro / Bienvenida)"
-                  className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-3 py-1 text-xs text-zinc-100 focus:outline-none focus:border-zinc-600"
-                />
-                <button
-                  type="button"
-                  onClick={() => removeSection(idx)}
-                  className="p-1 text-zinc-500 hover:text-red-400 transition"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* TAB 4: TRANSCRIPTION */}
+      {/* TAB 3: TRANSCRIPTION */}
       {activeTab === 'transcript' && (
         <div className="space-y-6 bg-zinc-900/40 p-6 rounded-xl border border-zinc-800/80">
           {/* Deepgram AI Transcription Generator Box */}
@@ -879,6 +831,8 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
             )}
           </div>
 
+          
+
           {/* Existing Manual/AI Line Feed */}
           <div className="flex items-center justify-between pt-2">
             <div>
@@ -929,6 +883,55 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
                   placeholder="Texto dicho en este fragmento de tiempo..."
                   className="w-full bg-zinc-900 border border-zinc-800 rounded p-2 text-xs text-zinc-100 focus:outline-none focus:border-zinc-600"
                 />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {/* TAB 4: SECTIONS / CAPÍTULOS */}
+      {activeTab === 'sections' && (
+        <div className="space-y-4 bg-zinc-900/40 p-6 rounded-xl border border-zinc-800/80">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-zinc-200">Secciones y Capítulos del Episodio</h3>
+              <p className="text-xs text-zinc-400">Añade marcas de tiempo para permitir la navegación por capítulos</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={addSection}
+              className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium px-3 py-1.5 rounded-lg transition flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4 text-indigo-400" />
+              <span>Añadir Sección</span>
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {formData.sections.map((sec: any, idx: number) => (
+              <div key={idx} className="flex items-center gap-2 bg-zinc-950 p-2 border border-zinc-800/80 rounded-lg">
+                <input
+                  type="text"
+                  value={sec.time}
+                  onChange={(e) => updateSection(idx, 'time', e.target.value)}
+                  placeholder="00:00"
+                  className="w-24 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs text-zinc-100 font-mono text-center focus:outline-none focus:border-zinc-600"
+                />
+                <input
+                  type="text"
+                  value={sec.title}
+                  onChange={(e) => updateSection(idx, 'title', e.target.value)}
+                  placeholder="Título de la sección (ej: Intro / Bienvenida)"
+                  className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-3 py-1 text-xs text-zinc-100 focus:outline-none focus:border-zinc-600"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeSection(idx)}
+                  className="p-1 text-zinc-500 hover:text-red-400 transition"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
             ))}
           </div>
