@@ -22,6 +22,7 @@ import {
   Activity,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
 } from 'lucide-react';
 
 interface UserSession {
@@ -36,6 +37,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [user, setUser] = useState<UserSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
+  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
   const pathname = usePathname();
   const router = useRouter();
 
@@ -44,12 +46,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (saved !== null) {
       setCollapsed(saved === 'true');
     }
+    const savedCats = localStorage.getItem('sidebar_collapsed_categories');
+    if (savedCats) {
+      try {
+        setCollapsedCategories(JSON.parse(savedCats));
+      } catch {}
+    }
   }, []);
 
   const toggleCollapse = () => {
     setCollapsed((prev) => {
       const next = !prev;
       localStorage.setItem('sidebar_collapsed', String(next));
+      return next;
+    });
+  };
+
+  const toggleCategory = (title: string) => {
+    setCollapsedCategories((prev) => {
+      const next = { ...prev, [title]: !prev[title] };
+      localStorage.setItem('sidebar_collapsed_categories', JSON.stringify(next));
       return next;
     });
   };
@@ -190,43 +206,57 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* Nav Links Grouped by Category - Independent Custom Scroll */}
         <nav className="flex-1 p-2 space-y-3 overflow-y-auto overflow-x-hidden select-none">
-          {navGroups.map((group) => (
-            <div key={group.title} className="space-y-0.5">
-              {!collapsed ? (
-                <div className="px-2 text-[9px] font-mono font-bold uppercase tracking-wider text-zinc-500 my-1 truncate">
-                  {group.title}
-                </div>
-              ) : (
-                <div className="border-t border-zinc-800/60 my-1.5 mx-1" />
-              )}
+          {navGroups.map((group) => {
+            const isCategoryCollapsed = collapsedCategories[group.title] ?? false;
 
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                const isActive =
-                  pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
-
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    title={collapsed ? item.label : undefined}
-                    className={`flex items-center gap-2.5 rounded-lg text-xs font-medium transition ${
-                      collapsed ? 'p-2 justify-center' : 'px-2.5 py-1.5'
-                    } ${
-                      isActive
-                        ? 'bg-zinc-800 text-zinc-100 border border-zinc-700/50 shadow-sm font-semibold'
-                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
-                    }`}
+            return (
+              <div key={group.title} className="space-y-0.5">
+                {!collapsed ? (
+                  <button
+                    onClick={() => toggleCategory(group.title)}
+                    className="w-full flex items-center justify-between px-2 text-[9px] font-mono font-bold uppercase tracking-wider text-zinc-500 my-1 hover:text-zinc-300 transition group select-none text-left"
+                    title={isCategoryCollapsed ? `Expandir ${group.title}` : `Contraer ${group.title}`}
                   >
-                    <Icon
-                      className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-indigo-400' : 'text-zinc-500'}`}
+                    <span className="truncate">{group.title}</span>
+                    <ChevronDown
+                      className={`w-3 h-3 text-zinc-600 group-hover:text-zinc-400 transition-transform duration-200 shrink-0 ${
+                        isCategoryCollapsed ? '-rotate-90' : 'rotate-0'
+                      }`}
                     />
-                    {!collapsed && <span className="truncate">{item.label}</span>}
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
+                  </button>
+                ) : (
+                  <div className="border-t border-zinc-800/60 my-1.5 mx-1" />
+                )}
+
+                {(!isCategoryCollapsed || collapsed) &&
+                  group.items.map((item) => {
+                    const Icon = item.icon;
+                    const isActive =
+                      pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
+
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        title={collapsed ? item.label : undefined}
+                        className={`flex items-center gap-2.5 rounded-lg text-xs font-medium transition ${
+                          collapsed ? 'p-2 justify-center' : 'px-2.5 py-1.5'
+                        } ${
+                          isActive
+                            ? 'bg-zinc-800 text-zinc-100 border border-zinc-700/50 shadow-sm font-semibold'
+                            : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
+                        }`}
+                      >
+                        <Icon
+                          className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-indigo-400' : 'text-zinc-500'}`}
+                        />
+                        {!collapsed && <span className="truncate">{item.label}</span>}
+                      </Link>
+                    );
+                  })}
+              </div>
+            );
+          })}
         </nav>
 
         {/* User Footer */}
