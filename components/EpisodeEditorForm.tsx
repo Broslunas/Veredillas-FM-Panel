@@ -865,7 +865,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
                     type="text"
                     value={tr.speaker || ''}
                     onChange={(e) => updateTranscription(idx, 'speaker', e.target.value)}
-                    placeholder="Hablante (ej: Saray)"
+                    placeholder="Hablante"
                     className="w-48 bg-zinc-900 border border-zinc-800 rounded px-3 py-1 text-xs text-zinc-100"
                   />
                   <button
