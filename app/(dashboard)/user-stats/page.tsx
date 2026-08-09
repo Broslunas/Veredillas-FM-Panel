@@ -698,6 +698,7 @@ export default function UserStatsPage() {
               >
                 <option value="all">Todos los roles</option>
                 <option value="user">Usuario</option>
+                <option value="editor">Editor</option>
                 <option value="admin">Admin</option>
                 <option value="owner">Propietario</option>
               </select>
@@ -748,6 +749,8 @@ export default function UserStatsPage() {
                         ? 'bg-rose-950/60 border-rose-800 text-rose-300'
                         : u.role === 'admin'
                         ? 'bg-purple-950/60 border-purple-800 text-purple-300'
+                        : u.role === 'editor'
+                        ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300'
                         : 'bg-zinc-800/60 border-zinc-700 text-zinc-400'
                     }`}>
                       {u.role}

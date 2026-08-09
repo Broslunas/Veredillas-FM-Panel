@@ -8,7 +8,7 @@ export interface IUser extends Document {
   name: string;
   picture?: string;
   bio?: string;
-  role: 'user' | 'admin' | 'owner';
+  role: 'user' | 'editor' | 'admin' | 'owner';
   favorites?: string[];
   listeningTime?: number;
   completedEpisodes?: string[];
@@ -36,7 +36,7 @@ const userSchema = new Schema<IUser>(
     name: { type: String, required: true },
     picture: { type: String },
     bio: { type: String, maxlength: 500 },
-    role: { type: String, enum: ['user', 'admin', 'owner'], default: 'user' },
+    role: { type: String, enum: ['user', 'editor', 'admin', 'owner'], default: 'user' },
     favorites: { type: [String], default: [] },
     listeningTime: { type: Number, default: 0 },
     completedEpisodes: { type: [String], default: [] },

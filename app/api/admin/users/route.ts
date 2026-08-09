@@ -6,9 +6,13 @@ import User from '@/models/User';
 // ── GET: List and filter users ──
 export async function GET(request: Request) {
   try {
-    const { authorized } = await isAuthorizedAdmin(request);
-    if (!authorized) {
+    const { authorized, user: currentUser } = await isAuthorizedAdmin(request);
+    if (!authorized || !currentUser) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+    }
+
+    if (currentUser.role === 'editor') {
+      return NextResponse.json({ error: 'Los editores no tienen permisos para ver ni gestionar usuarios' }, { status: 403 });
     }
 
     await dbConnect();
@@ -64,6 +68,10 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }
 
+    if (currentUser.role === 'editor') {
+      return NextResponse.json({ error: 'Los editores no tienen permisos para modificar usuarios' }, { status: 403 });
+    }
+
     await dbConnect();
     const body = await request.json();
     const { userId, name, email, role, bio, newsletter, listeningTime, currentStreak, maxStreak, favorites } = body;
@@ -87,7 +95,7 @@ export async function PUT(request: Request) {
     const updateData: any = {};
     if (name) updateData.name = name;
     if (email) updateData.email = email;
-    if (role && (role === 'user' || role === 'admin' || role === 'owner')) {
+    if (role && (role === 'user' || role === 'editor' || role === 'admin' || role === 'owner')) {
       // Only owner can assign owner role
       if (role === 'owner' && currentUser.role !== 'owner') {
         return NextResponse.json({ error: 'Solo el propietario puede asignar el rol de propietario' }, { status: 403 });
@@ -133,6 +141,10 @@ export async function DELETE(request: Request) {
     const { authorized, user: currentUser } = await isAuthorizedAdmin(request);
     if (!authorized || !currentUser) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+    }
+
+    if (currentUser.role === 'editor') {
+      return NextResponse.json({ error: 'Los editores no tienen permisos para eliminar usuarios' }, { status: 403 });
     }
 
     await dbConnect();

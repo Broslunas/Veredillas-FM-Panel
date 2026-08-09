@@ -7,7 +7,7 @@ export interface JWTPayload {
   userId: string;
   email: string;
   name: string;
-  role: 'user' | 'admin' | 'owner';
+  role: 'user' | 'editor' | 'admin' | 'owner';
 }
 
 export function generateToken(user: IUser): string {

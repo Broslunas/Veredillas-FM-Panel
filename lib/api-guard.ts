@@ -27,7 +27,7 @@ export async function getAuthUser(request: Request): Promise<JWTPayload | null> 
 export async function isAuthorizedAdmin(request: Request): Promise<{ authorized: boolean; user?: JWTPayload }> {
   const user = await getAuthUser(request);
   if (!user) return { authorized: false };
-  if (user.role === 'admin' || user.role === 'owner') {
+  if (user.role === 'admin' || user.role === 'owner' || user.role === 'editor') {
     return { authorized: true, user };
   }
   return { authorized: false, user };

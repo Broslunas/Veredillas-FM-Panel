@@ -51,7 +51,7 @@ export async function GET(request: Request) {
 
     const token = generateToken(user);
     const response = NextResponse.redirect(
-      user.role === 'admin' || user.role === 'owner' ? `${origin}/` : `${origin}/unauthorized`
+      user.role === 'admin' || user.role === 'owner' || user.role === 'editor' ? `${origin}/` : `${origin}/unauthorized`
     );
 
     response.cookies.set('auth-token', token, {

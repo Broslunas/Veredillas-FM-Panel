@@ -42,7 +42,7 @@ export async function GET(request: Request) {
 
     const sessionToken = generateToken(user);
     const response = NextResponse.redirect(
-      user.role === 'admin' || user.role === 'owner' ? `${origin}/` : `${origin}/unauthorized`
+      user.role === 'admin' || user.role === 'owner' || user.role === 'editor' ? `${origin}/` : `${origin}/unauthorized`
     );
 
     response.cookies.set('auth-token', sessionToken, {

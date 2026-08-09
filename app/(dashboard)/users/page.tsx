@@ -29,7 +29,7 @@ interface UserItem {
   email: string;
   picture?: string;
   bio?: string;
-  role: 'user' | 'admin' | 'owner';
+  role: 'user' | 'editor' | 'admin' | 'owner';
   newsletter?: boolean;
   listeningTime?: number;
   currentStreak?: number;
@@ -57,7 +57,7 @@ export default function UsersManagementPage() {
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editBio, setEditBio] = useState('');
-  const [editRole, setEditRole] = useState<'user' | 'admin' | 'owner'>('user');
+  const [editRole, setEditRole] = useState<'user' | 'editor' | 'admin' | 'owner'>('user');
   const [editNewsletter, setEditNewsletter] = useState(true);
   const [editHours, setEditHours] = useState('0');
   const [editMinutes, setEditMinutes] = useState('0');
@@ -408,6 +408,7 @@ export default function UsersManagementPage() {
           >
             <option value="all">Todos los roles</option>
             <option value="user">Usuario</option>
+            <option value="editor">Editor</option>
             <option value="admin">Administrador</option>
             <option value="owner">Propietario</option>
           </select>
@@ -569,6 +570,8 @@ export default function UsersManagementPage() {
                               ? 'bg-rose-950/60 border-rose-800 text-rose-300'
                               : user.role === 'admin'
                               ? 'bg-purple-950/60 border-purple-800 text-purple-300'
+                              : user.role === 'editor'
+                              ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300'
                               : 'bg-zinc-800/60 border-zinc-700 text-zinc-400'
                           }`}
                         >
@@ -702,6 +705,7 @@ export default function UsersManagementPage() {
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-zinc-200 focus:outline-none focus:border-indigo-500 font-mono"
                   >
                     <option value="user">Usuario</option>
+                    <option value="editor">Editor</option>
                     <option value="admin">Administrador</option>
                     <option value="owner">Propietario</option>
                   </select>

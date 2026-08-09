@@ -31,7 +31,7 @@ interface UserSession {
   name: string;
   email: string;
   picture?: string;
-  role: 'admin' | 'owner' | 'user';
+  role: 'admin' | 'owner' | 'editor' | 'user';
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -86,7 +86,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           return;
         }
 
-        if (data.user.role !== 'admin' && data.user.role !== 'owner') {
+        if (data.user.role !== 'admin' && data.user.role !== 'owner' && data.user.role !== 'editor') {
           router.push('/unauthorized');
           return;
         }
@@ -137,7 +137,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     {
       title: 'Comunidad & Gestión',
       items: [
-        { label: 'Usuarios', href: '/users', icon: Users },
+        ...(user?.role !== 'editor' ? [{ label: 'Usuarios', href: '/users', icon: Users }] : []),
         { label: 'Comentarios', href: '/comments', icon: MessageSquare },
         { label: 'Entrevistas', href: '/interviews', icon: Calendar },
         { label: 'Invitados', href: '/guests', icon: UserCheck },
