@@ -162,6 +162,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { label: 'Comentarios', href: '/comments', icon: MessageSquare },
         { label: 'Entrevistas', href: '/interviews', icon: Calendar },
         { label: 'Invitados', href: '/guests', icon: UserCheck },
+        { label: 'Equipo', href: '/team', icon: Users },
       ],
     },
     {
