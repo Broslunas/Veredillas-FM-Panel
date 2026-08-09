@@ -150,7 +150,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { label: 'Social Publisher', href: '/buffer', icon: Share2 },
         ...(user?.role !== 'editor'
           ? [
-              { label: 'Medios R2', href: '/media', icon: HardDrive },
               { label: 'Buckets R2', href: '/buckets', icon: HardDrive },
             ]
           : []),
