@@ -602,15 +602,6 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
             helperText="Formato recomendado: WebP / JPG / PNG (16:9 relación de aspecto)."
           />
 
-          <R2Uploader
-            label="Archivo de Audio Principal (R2 Direct Upload)"
-            accept="audio/*"
-            folder="audios"
-            entityId={formData.slug}
-            value={formData.audioUrl}
-            onChange={(url) => setFormData({ ...formData, audioUrl: url })}
-            helperText="Subida directa a Cloudflare R2 sin consumo de ancho de banda de Vercel. Formato MP3 o WAV."
-          />
 
           <div className="space-y-4 pt-2">
             <R2Uploader
@@ -647,19 +638,16 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
               }}
               helperText="Sube un archivo de vídeo y extrae automáticamente el audio para el episodio."
             />
-
-            <div className="grid grid-cols-1 gap-2 text-xs font-mono text-zinc-400">
-              {videoUploadStatus && <div className="text-zinc-300">{videoUploadStatus}</div>}
-              {audioExtractionStatus && <div>{audioExtractionStatus}</div>}
-              {videoUploadError && <div className="text-rose-400">{videoUploadError}</div>}
-              {formData.videoUrl && (
-                <div className="text-zinc-300">URL de vídeo cargado: {formData.videoUrl}</div>
-              )}
-              {formData.audioUrl && (
-                <div className="text-zinc-300">URL de audio extraído: {formData.audioUrl}</div>
-              )}
-            </div>
           </div>
+
+          <R2Uploader
+            label="Archivo de Audio Principal (R2 Direct Upload)"
+            accept="audio/*"
+            folder="audios"
+            entityId={formData.slug}
+            value={formData.audioUrl}
+            onChange={(url) => setFormData({ ...formData, audioUrl: url })}
+          />
         </div>
       )}
 
