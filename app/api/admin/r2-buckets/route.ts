@@ -6,30 +6,35 @@ import { KNOWN_R2_BUCKETS, IMAGE_BUCKET_NAME, BUCKET_NAME, imageR2Client, r2Clie
 import { isAuthorizedAdmin } from '@/lib/api-guard';
 
 async function readBucketUsage(bucket: string) {
-  const client = bucket === IMAGE_BUCKET_NAME ? imageR2Client : r2Client;
-  let continuationToken: string | undefined;
-  let totalBytes = 0;
-  let totalObjects = 0;
+  try {
+    const client = bucket === IMAGE_BUCKET_NAME ? imageR2Client : r2Client;
+    let continuationToken: string | undefined;
+    let totalBytes = 0;
+    let totalObjects = 0;
 
-  do {
-    const command = new ListObjectsV2Command({
-      Bucket: bucket,
-      Prefix: '',
-      ContinuationToken: continuationToken,
-      MaxKeys: 1000,
-    });
-    const response = await client.send(command);
-    const contents = response.Contents || [];
-    for (const item of contents) {
-      if (item.Key) {
-        totalObjects += 1;
-        totalBytes += item.Size || 0;
+    do {
+      const command = new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: '',
+        ContinuationToken: continuationToken,
+        MaxKeys: 1000,
+      });
+      const response = await client.send(command);
+      const contents = response.Contents || [];
+      for (const item of contents) {
+        if (item.Key) {
+          totalObjects += 1;
+          totalBytes += item.Size || 0;
+        }
       }
-    }
-    continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
-  } while (continuationToken);
+      continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+    } while (continuationToken);
 
-  return { bucket, totalBytes, totalObjects };
+    return { bucket, totalBytes, totalObjects };
+  } catch (err) {
+    console.error(`Error reading bucket usage for ${bucket}:`, err);
+    return { bucket, totalBytes: 0, totalObjects: 0 };
+  }
 }
 
 export async function GET(request: Request) {
@@ -37,26 +42,30 @@ export async function GET(request: Request) {
   if (!authorized || !user || user.role === 'editor') {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
+  try {
+    await dbConnect();
 
-  await dbConnect();
+    const quotas = await R2BucketQuota.find({ bucket: { $in: [...KNOWN_R2_BUCKETS] } }).lean();
+    const usage = await Promise.all(
+      [...KNOWN_R2_BUCKETS].map(async (bucket) => {
+        const { totalBytes, totalObjects } = await readBucketUsage(bucket);
+        const quota = quotas.find((item) => item.bucket === bucket);
+        return {
+          bucket,
+          totalBytes,
+          totalObjects,
+          maxBytes: quota?.maxBytes ?? null,
+        };
+      })
+    );
 
-  const quotas = await R2BucketQuota.find({ bucket: { $in: [...KNOWN_R2_BUCKETS] } }).lean();
-  const usage = await Promise.all(
-    [...KNOWN_R2_BUCKETS].map(async (bucket) => {
-      const { totalBytes, totalObjects } = await readBucketUsage(bucket);
-      const quota = quotas.find((item) => item.bucket === bucket);
-      return {
-        bucket,
-        totalBytes,
-        totalObjects,
-        maxBytes: quota?.maxBytes ?? null,
-      };
-    })
-  );
+    const totalBytesAcrossBuckets = usage.reduce((sum, item) => sum + item.totalBytes, 0);
 
-  const totalBytesAcrossBuckets = usage.reduce((sum, item) => sum + item.totalBytes, 0);
-
-  return NextResponse.json({ usage, totalBytesAcrossBuckets });
+    return NextResponse.json({ usage, totalBytesAcrossBuckets });
+  } catch (error: any) {
+    console.error('Error in GET /api/admin/r2-buckets:', error);
+    return NextResponse.json({ error: error.message || 'Error reading R2 buckets' }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {
