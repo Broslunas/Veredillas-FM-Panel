@@ -135,31 +135,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   ];
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col md:flex-row">
-      {/* COLLAPSIBLE SIDEBAR */}
+    <div className="h-screen overflow-hidden bg-zinc-950 text-zinc-100 flex flex-col md:flex-row">
+      {/* COLLAPSIBLE INDEPENDENT SIDEBAR */}
       <aside
         className={`w-full ${
-          collapsed ? 'md:w-16' : 'md:w-64'
-        } bg-zinc-900/60 border-r border-zinc-800/80 flex flex-col shrink-0 transition-all duration-300 relative`}
+          collapsed ? 'md:w-16' : 'md:w-60'
+        } h-auto md:h-screen md:sticky md:top-0 bg-zinc-900/60 border-r border-zinc-800/80 flex flex-col shrink-0 transition-all duration-300 relative z-20`}
       >
         {/* Brand Header */}
-        <div className="p-3 border-b border-zinc-800/80 flex items-center justify-between min-h-[57px]">
+        <div className="p-3 border-b border-zinc-800/80 flex items-center justify-between min-h-[52px] shrink-0">
           <Link href="/" className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-md shadow-indigo-600/30 shrink-0">
+            <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-xs shadow-md shadow-indigo-600/30 shrink-0">
               V
             </div>
             {!collapsed && (
               <div className="min-w-0">
-                <span className="font-bold text-sm text-zinc-100 block leading-tight truncate">
+                <span className="font-bold text-xs text-zinc-100 block leading-tight truncate">
                   Veredillas FM
                 </span>
-                <span className="text-[10px] font-mono text-zinc-500 block uppercase">Panel Admin</span>
+                <span className="text-[9px] font-mono text-zinc-500 block uppercase">Panel Admin</span>
               </div>
             )}
           </Link>
 
           {!collapsed && user?.role && (
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 uppercase hidden lg:inline-block">
+            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 uppercase hidden lg:inline-block">
               {user.role}
             </span>
           )}
@@ -170,34 +170,34 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             title={collapsed ? 'Expandir barra lateral' : 'Contraer barra lateral'}
             className="p-1 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/80 transition shrink-0 hidden md:flex items-center justify-center"
           >
-            {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+            {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
           </button>
         </div>
 
         {/* Quick Create Action */}
-        <div className="p-2.5">
+        <div className="p-2 shrink-0">
           <Link
             href="/episodes/new"
             title="Nuevo Episodio"
-            className={`w-full bg-zinc-800 hover:bg-zinc-700/80 border border-zinc-700/60 text-zinc-200 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-2 transition ${
-              collapsed ? 'px-0' : 'px-3'
+            className={`w-full bg-zinc-800/80 hover:bg-zinc-700/80 border border-zinc-700/60 text-zinc-200 py-1.5 rounded-lg text-xs font-medium flex items-center justify-center gap-2 transition ${
+              collapsed ? 'px-0' : 'px-2.5'
             }`}
           >
-            <Plus className="w-4 h-4 text-indigo-400 shrink-0" />
-            {!collapsed && <span>Nuevo Episodio</span>}
+            <Plus className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+            {!collapsed && <span className="text-xs">Nuevo Episodio</span>}
           </Link>
         </div>
 
-        {/* Nav Links Grouped by Category */}
-        <nav className="flex-1 p-2 space-y-4 overflow-y-auto overflow-x-hidden">
+        {/* Nav Links Grouped by Category - Independent Custom Scroll */}
+        <nav className="flex-1 p-2 space-y-3 overflow-y-auto overflow-x-hidden select-none">
           {navGroups.map((group) => (
-            <div key={group.title} className="space-y-1">
+            <div key={group.title} className="space-y-0.5">
               {!collapsed ? (
-                <div className="px-2 text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500 mb-1 truncate">
+                <div className="px-2 text-[9px] font-mono font-bold uppercase tracking-wider text-zinc-500 my-1 truncate">
                   {group.title}
                 </div>
               ) : (
-                <div className="border-t border-zinc-800/60 my-2 mx-1" />
+                <div className="border-t border-zinc-800/60 my-1.5 mx-1" />
               )}
 
               {group.items.map((item) => {
@@ -210,8 +210,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     key={item.href}
                     href={item.href}
                     title={collapsed ? item.label : undefined}
-                    className={`flex items-center gap-3 rounded-lg text-xs font-medium transition ${
-                      collapsed ? 'p-2 justify-center' : 'px-3 py-2'
+                    className={`flex items-center gap-2.5 rounded-lg text-xs font-medium transition ${
+                      collapsed ? 'p-2 justify-center' : 'px-2.5 py-1.5'
                     } ${
                       isActive
                         ? 'bg-zinc-800 text-zinc-100 border border-zinc-700/50 shadow-sm font-semibold'
@@ -219,7 +219,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     }`}
                   >
                     <Icon
-                      className={`w-4 h-4 shrink-0 ${isActive ? 'text-indigo-400' : 'text-zinc-500'}`}
+                      className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-indigo-400' : 'text-zinc-500'}`}
                     />
                     {!collapsed && <span className="truncate">{item.label}</span>}
                   </Link>
@@ -230,24 +230,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </nav>
 
         {/* User Footer */}
-        <div className="p-2.5 border-t border-zinc-800/80 flex items-center justify-between gap-2 min-h-[53px]">
+        <div className="p-2 border-t border-zinc-800/80 flex items-center justify-between gap-2 min-h-[48px] shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             {user?.picture ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={user.picture}
                 alt={user.name}
-                className="w-7 h-7 rounded-full object-cover shrink-0"
+                className="w-6 h-6 rounded-full object-cover shrink-0"
               />
             ) : (
-              <div className="w-7 h-7 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-300 shrink-0">
+              <div className="w-6 h-6 rounded-full bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-300 shrink-0">
                 {user?.name?.charAt(0)}
               </div>
             )}
             {!collapsed && (
               <div className="min-w-0">
-                <p className="text-xs font-medium text-zinc-200 truncate">{user?.name}</p>
-                <p className="text-[10px] text-zinc-500 truncate">{user?.email}</p>
+                <p className="text-xs font-medium text-zinc-200 truncate leading-tight">{user?.name}</p>
+                <p className="text-[9px] text-zinc-500 truncate leading-tight">{user?.email}</p>
               </div>
             )}
           </div>
@@ -255,15 +255,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <button
             onClick={handleLogout}
             title="Cerrar sesión"
-            className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition shrink-0"
+            className="p-1 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition shrink-0"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-3.5 h-3.5" />
           </button>
         </div>
       </aside>
 
-      {/* MAIN CONTENT AREA */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">{children}</main>
+      {/* MAIN CONTENT AREA (INDEPENDENT SCROLL) */}
+      <main className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">{children}</main>
     </div>
   );
 }
