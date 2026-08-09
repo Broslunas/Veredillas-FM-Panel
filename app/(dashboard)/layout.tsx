@@ -131,7 +131,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { label: 'Blog', href: '/blog', icon: FileText },
         { label: 'Highlights Studio', href: '/social-clips', icon: Video },
         { label: 'Social Publisher', href: '/buffer', icon: Share2 },
-        { label: 'Medios R2', href: '/media', icon: HardDrive },
+        ...(user?.role !== 'editor' ? [{ label: 'Medios R2', href: '/media', icon: HardDrive }] : []),
       ],
     },
     {

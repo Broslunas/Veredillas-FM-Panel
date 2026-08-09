@@ -3,8 +3,8 @@ import { uploadFileToR2 } from '@/lib/r2';
 import { isAuthorizedAdmin } from '@/lib/api-guard';
 
 export async function POST(request: Request) {
-  const { authorized } = await isAuthorizedAdmin(request);
-  if (!authorized) {
+  const { authorized, user } = await isAuthorizedAdmin(request);
+  if (!authorized || !user || user.role === 'editor') {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
 

@@ -10,11 +10,16 @@ export default function R2MediaHubPage() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isForbidden, setIsForbidden] = useState(false);
 
   const loadFiles = async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/r2/files');
+      if (res.status === 403) {
+        setIsForbidden(true);
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setFiles(data.files || []);
@@ -97,6 +102,20 @@ export default function R2MediaHubPage() {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
+
+  if (isForbidden) {
+    return (
+      <div className="p-8 max-w-4xl mx-auto w-full min-h-[60vh] flex items-center justify-center">
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-8 text-center space-y-3 max-w-md w-full">
+          <HardDrive className="w-10 h-10 text-amber-500/60 mx-auto" />
+          <h2 className="text-lg font-bold text-zinc-100">Acceso Restringido</h2>
+          <p className="text-xs text-zinc-400 font-mono">
+            Los editores no tienen permisos para ver ni gestionar la biblioteca de Medios R2.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 md:p-8 space-y-6 max-w-6xl mx-auto w-full">

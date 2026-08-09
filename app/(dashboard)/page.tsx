@@ -11,18 +11,25 @@ export default function DashboardOverviewPage() {
     guests: 0,
     files: 0,
   });
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [recentEpisodes, setRecentEpisodes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function loadData() {
       try {
-        const [epRes, blogRes, guestRes, r2Res] = await Promise.all([
+        const [meRes, epRes, blogRes, guestRes, r2Res] = await Promise.all([
+          fetch('/api/auth/me'),
           fetch('/api/episodes'),
           fetch('/api/blog'),
           fetch('/api/guests'),
           fetch('/api/r2/files'),
         ]);
+
+        if (meRes.ok) {
+          const meData = await meRes.json();
+          setUserRole(meData.user?.role || null);
+        }
 
         const episodes = epRes.ok ? await epRes.json() : [];
         const blog = blogRes.ok ? await blogRes.json() : [];
@@ -60,7 +67,7 @@ export default function DashboardOverviewPage() {
     { label: 'Episodios', count: stats.episodes, icon: Radio, href: '/episodes', color: 'text-indigo-400' },
     { label: 'Artículos de Blog', count: stats.blog, icon: FileText, href: '/blog', color: 'text-emerald-400' },
     { label: 'Invitados', count: stats.guests, icon: Users, href: '/guests', color: 'text-purple-400' },
-    { label: 'Archivos R2', count: stats.files, icon: HardDrive, href: '/media', color: 'text-amber-400' },
+    ...(userRole !== 'editor' ? [{ label: 'Archivos R2', count: stats.files, icon: HardDrive, href: '/media', color: 'text-amber-400' }] : []),
   ];
 
   return (

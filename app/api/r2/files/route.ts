@@ -3,8 +3,8 @@ import { listR2Files, deleteR2File } from '@/lib/r2';
 import { isAuthorizedAdmin } from '@/lib/api-guard';
 
 export async function GET(request: Request) {
-  const { authorized } = await isAuthorizedAdmin(request);
-  if (!authorized) {
+  const { authorized, user } = await isAuthorizedAdmin(request);
+  if (!authorized || !user || user.role === 'editor') {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
 
@@ -16,8 +16,8 @@ export async function GET(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const { authorized } = await isAuthorizedAdmin(request);
-  if (!authorized) {
+  const { authorized, user } = await isAuthorizedAdmin(request);
+  if (!authorized || !user || user.role === 'editor') {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
 
