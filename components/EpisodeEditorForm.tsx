@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import R2Uploader from '@/components/R2Uploader';
+import ClipYouTubeBatchUploader from '@/components/ClipYouTubeBatchUploader';
 import { uploadFileToR2ViaPresignedUrl } from '@/lib/r2-client';
 import {
   Save,
@@ -289,6 +290,13 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
       copy[idx] = { ...copy[idx], [field]: val };
       return { ...prev, clips: copy };
     });
+  };
+
+  const handleClipUploaded = (clip: { title: string; url: string }) => {
+    setFormData((prev) => ({
+      ...prev,
+      clips: [...prev.clips, clip],
+    }));
   };
 
   return (
@@ -925,6 +933,11 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
       {/* TAB 5: CLIPS & QUIZ */}
       {activeTab === 'clips_quiz' && (
         <div className="space-y-6 bg-zinc-900/40 p-6 rounded-xl border border-zinc-800/80">
+          {/* Batch upload of clips from the local computer directly to YouTube */}
+          <div className="pb-6 border-b border-zinc-800/80">
+            <ClipYouTubeBatchUploader onUploaded={handleClipUploaded} />
+          </div>
+
           {/* Clips */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
