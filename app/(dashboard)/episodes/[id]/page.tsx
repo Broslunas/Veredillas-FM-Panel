@@ -48,5 +48,16 @@ export default function EditEpisodePage() {
     );
   }
 
-  return <EpisodeEditorForm initialData={episode} isEdit={true} />;
+  return (
+    <React.Suspense
+      fallback={
+        <div className="p-12 flex justify-center text-zinc-500 gap-2 font-mono text-xs">
+          <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
+          <span>Cargando formulario...</span>
+        </div>
+      }
+    >
+      <EpisodeEditorForm initialData={episode} isEdit={true} />
+    </React.Suspense>
+  );
 }

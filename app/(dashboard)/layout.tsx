@@ -24,6 +24,8 @@ import {
   ChevronRight,
   ChevronDown,
   ExternalLink,
+  Captions,
+  Cpu,
 } from 'lucide-react';
 
 interface UserSession {
@@ -144,9 +146,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       ],
     },
     {
-      title: 'Analíticas',
+      title: 'Analíticas & API',
       items: [
         { label: 'Analíticas', href: '/user-stats', icon: BarChart3 },
+        ...(user?.role === 'admin' || user?.role === 'owner'
+          ? [{ label: 'Deepgram Admin', href: '/deepgram-stats', icon: Cpu }]
+          : []),
         {
           label: 'Broslytics ↗',
           href: '#',

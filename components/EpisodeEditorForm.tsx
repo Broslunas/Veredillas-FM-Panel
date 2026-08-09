@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import R2Uploader from '@/components/R2Uploader';
 import {
   Save,
@@ -15,6 +15,7 @@ import {
   Radio,
   Loader2,
   CheckCircle2,
+  Sparkles,
 } from 'lucide-react';
 
 interface EpisodeEditorProps {
@@ -22,12 +23,42 @@ interface EpisodeEditorProps {
   isEdit?: boolean;
 }
 
+type TabType = 'general' | 'media' | 'sections' | 'transcript' | 'clips_quiz';
+const VALID_TABS: TabType[] = ['general', 'media', 'sections', 'transcript', 'clips_quiz'];
+
 export default function EpisodeEditorForm({ initialData, isEdit = false }: EpisodeEditorProps) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'general' | 'media' | 'sections' | 'transcript' | 'clips_quiz'>('general');
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const tabQuery = searchParams.get('tab') as TabType | null;
+  const initialTab: TabType = tabQuery && VALID_TABS.includes(tabQuery) ? tabQuery : 'general';
+
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab);
+
+  useEffect(() => {
+    if (tabQuery && VALID_TABS.includes(tabQuery) && tabQuery !== activeTab) {
+      setActiveTab(tabQuery);
+    }
+  }, [tabQuery]);
+
+  const changeTab = (newTab: TabType) => {
+    setActiveTab(newTab);
+    const params = new URLSearchParams(searchParams ? searchParams.toString() : '');
+    params.set('tab', newTab);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
+
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Deepgram AI Transcription States
+  const [deepgramLoading, setDeepgramLoading] = useState(false);
+  const [deepgramStatus, setDeepgramStatus] = useState('');
+  const [deepgramError, setDeepgramError] = useState<string | null>(null);
+  const [generatedSubtitles, setGeneratedSubtitles] = useState<{ srt: string; vtt: string } | null>(null);
+  const [copiedSrt, setCopiedSrt] = useState(false);
 
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
@@ -227,7 +258,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
       <div className="flex items-center gap-2 border-b border-zinc-800/80 overflow-x-auto pb-1">
         <button
           type="button"
-          onClick={() => setActiveTab('general')}
+          onClick={() => changeTab('general')}
           className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-2 border-b-2 whitespace-nowrap ${
             activeTab === 'general'
               ? 'border-indigo-500 text-indigo-400 bg-zinc-900/60'
@@ -240,7 +271,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
 
         <button
           type="button"
-          onClick={() => setActiveTab('media')}
+          onClick={() => changeTab('media')}
           className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-2 border-b-2 whitespace-nowrap ${
             activeTab === 'media'
               ? 'border-indigo-500 text-indigo-400 bg-zinc-900/60'
@@ -252,7 +283,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
 
         <button
           type="button"
-          onClick={() => setActiveTab('sections')}
+          onClick={() => changeTab('sections')}
           className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-2 border-b-2 whitespace-nowrap ${
             activeTab === 'sections'
               ? 'border-indigo-500 text-indigo-400 bg-zinc-900/60'
@@ -265,7 +296,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
 
         <button
           type="button"
-          onClick={() => setActiveTab('transcript')}
+          onClick={() => changeTab('transcript')}
           className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-2 border-b-2 whitespace-nowrap ${
             activeTab === 'transcript'
               ? 'border-indigo-500 text-indigo-400 bg-zinc-900/60'
@@ -278,7 +309,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
 
         <button
           type="button"
-          onClick={() => setActiveTab('clips_quiz')}
+          onClick={() => changeTab('clips_quiz')}
           className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-2 border-b-2 whitespace-nowrap ${
             activeTab === 'clips_quiz'
               ? 'border-indigo-500 text-indigo-400 bg-zinc-900/60'
@@ -562,11 +593,188 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
 
       {/* TAB 4: TRANSCRIPTION */}
       {activeTab === 'transcript' && (
-        <div className="space-y-4 bg-zinc-900/40 p-6 rounded-xl border border-zinc-800/80">
-          <div className="flex items-center justify-between">
+        <div className="space-y-6 bg-zinc-900/40 p-6 rounded-xl border border-zinc-800/80">
+          {/* Deepgram AI Transcription Generator Box */}
+          <div className="bg-gradient-to-r from-indigo-950/60 via-zinc-900 to-purple-950/60 border border-indigo-800/60 rounded-2xl p-5 space-y-4 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-indigo-900/40 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-indigo-600/30 border border-indigo-500/50 flex items-center justify-center text-indigo-300">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+                    <span>Transcripción Automática con Deepgram AI</span>
+                    <span className="text-[10px] font-mono font-bold bg-indigo-950 border border-indigo-800 text-indigo-300 px-2 py-0.5 rounded">
+                      Nova-3
+                    </span>
+                  </h4>
+                  <p className="text-xs text-zinc-400">
+                    Genera automáticamente la transcripción con marcas de tiempo e identificación de hablantes usando la IA de Deepgram.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Input Selection / Audio Status */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
+              <div className="md:col-span-8 space-y-1.5">
+                <label className="text-zinc-300 font-mono text-[11px] font-semibold">Fuente de Audio / Vídeo</label>
+                <input
+                  type="text"
+                  placeholder="https://cdn.veredillasfm.es/episodes/audio/ejemplo.mp3"
+                  value={formData.audioUrl || formData.videoUrl || ''}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, audioUrl: e.target.value }))}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-100 font-mono focus:outline-none focus:border-indigo-500"
+                />
+                <span className="text-[10px] text-zinc-500 block">
+                  {formData.audioUrl ? '✓ Usando Audio Principal asignado al episodio' : formData.videoUrl ? '✓ Usando URL de Vídeo del episodio' : 'Pega una URL de audio/vídeo de R2 para transcribir'}
+                </span>
+              </div>
+
+              <div className="md:col-span-4 flex items-end">
+                <button
+                  type="button"
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const sourceUrl = formData.audioUrl || formData.videoUrl;
+                    if (!sourceUrl) {
+                      setDeepgramError('Por favor añade la URL de audio o vídeo del episodio primero.');
+                      return;
+                    }
+                    setDeepgramError(null);
+                    setDeepgramLoading(true);
+                    setDeepgramStatus('Enviando audio a Deepgram AI (Nova-3)...');
+                    try {
+                      const res = await fetch('/api/admin/deepgram/transcribe', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          url: sourceUrl,
+                          model: 'nova-3',
+                          language: 'es',
+                        }),
+                      });
+                      if (!res.ok) {
+                        const errData = await res.json();
+                        throw new Error(errData.error || 'Error en la transcripción con Deepgram');
+                      }
+                      const data = await res.json();
+                      setGeneratedSubtitles({ srt: data.srt, vtt: data.vtt });
+
+                      if (data.utterances && data.utterances.length > 0) {
+                        const formatted = data.utterances.map((u: any) => {
+                          const m = Math.floor(u.start / 60);
+                          const s = Math.floor(u.start % 60);
+                          const timeStr = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+                          return {
+                            time: timeStr,
+                            text: u.transcript.trim(),
+                            speaker: u.speaker !== undefined ? `Hablante ${u.speaker}` : '',
+                          };
+                        });
+                        setFormData((prev) => ({ ...prev, transcription: formatted }));
+                      } else if (data.transcript) {
+                        setFormData((prev) => ({
+                          ...prev,
+                          transcription: [{ time: '00:00', text: data.transcript.trim(), speaker: 'Hablante 1' }],
+                        }));
+                      }
+                      setDeepgramStatus('¡Transcripción y subtítulos integrados con éxito en el formulario!');
+                    } catch (err: any) {
+                      console.error(err);
+                      setDeepgramError(err.message || 'Error al generar la transcripción');
+                    } finally {
+                      setDeepgramLoading(false);
+                    }
+                  }}
+                  disabled={deepgramLoading}
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs shadow-md shadow-indigo-600/20"
+                >
+                  {deepgramLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      <span>Transcribiendo...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 text-indigo-300" />
+                      <span>Generar Transcripción</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Status & Error Feedback Banners */}
+            {deepgramStatus && !deepgramError && (
+              <div className="p-2.5 rounded-xl bg-indigo-950/60 border border-indigo-800/80 text-xs font-mono text-indigo-300 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{deepgramStatus}</span>
+              </div>
+            )}
+
+            {deepgramError && (
+              <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-800/80 text-xs font-mono text-rose-300 flex items-center gap-2">
+                <span className="text-rose-400 font-bold">⚠️ Error:</span>
+                <span>{deepgramError}</span>
+              </div>
+            )}
+
+            {/* Subtitle Export buttons if generated */}
+            {generatedSubtitles && (
+              <div className="flex items-center gap-3 pt-2 border-t border-indigo-900/40 text-xs font-mono">
+                <span className="text-zinc-400 font-bold">Subtítulos Exportables:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const blob = new Blob([generatedSubtitles.srt], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${formData.slug || 'episodio'}.srt`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-2.5 py-1 rounded bg-indigo-900/80 hover:bg-indigo-800 text-indigo-200 border border-indigo-700 transition"
+                >
+                  Descargar .SRT
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const blob = new Blob([generatedSubtitles.vtt], { type: 'text/vtt' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${formData.slug || 'episodio'}.vtt`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-2.5 py-1 rounded bg-purple-900/80 hover:bg-purple-800 text-purple-200 border border-purple-700 transition"
+                >
+                  Descargar .VTT
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(generatedSubtitles.srt);
+                    setCopiedSrt(true);
+                    setTimeout(() => setCopiedSrt(false), 2000);
+                  }}
+                  className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 transition"
+                >
+                  {copiedSrt ? '¡SRT Copiado!' : 'Copiar SRT'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Existing Manual/AI Line Feed */}
+          <div className="flex items-center justify-between pt-2">
             <div>
-              <h3 className="text-sm font-semibold text-zinc-200">Transcripción Sincronizada</h3>
-              <p className="text-xs text-zinc-400">Líneas de voz con tiempo y hablante asignado</p>
+              <h3 className="text-sm font-semibold text-zinc-200">Líneas de Transcripción del Episodio</h3>
+              <p className="text-xs text-zinc-400">Puedes editar, reordenar o añadir fragmentos manualmente</p>
             </div>
 
             <button
