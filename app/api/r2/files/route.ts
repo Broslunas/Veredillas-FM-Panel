@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { listR2Files, deleteR2File, renameR2File } from '@/lib/r2';
+import { listR2Files, deleteR2File, renameR2File, deleteR2Prefix } from '@/lib/r2';
 import { isAuthorizedAdmin } from '@/lib/api-guard';
 
 export async function GET(request: Request) {
