@@ -201,22 +201,6 @@ export default function UserStatsPage() {
 
         {/* Action Controls */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Broslytics External Pop-up Button */}
-          <button
-            onClick={() => {
-              window.open(
-                'https://analytics.broslunas.com/share/EbieAikRrucZqa03',
-                'BroslyticsWindow',
-                'width=1280,height=850,scrollbars=yes,resizable=yes'
-              );
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg text-xs font-bold shadow-md transition border border-indigo-400/30"
-            title="Abrir analíticas externas Broslytics en ventana emergente"
-          >
-            <BarChart3 className="w-3.5 h-3.5" />
-            <span>Broslytics</span>
-            <ExternalLink className="w-3.5 h-3.5 opacity-80" />
-          </button>
 
           {/* Timeframe selector */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-1 flex items-center gap-1">

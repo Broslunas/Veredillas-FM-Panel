@@ -23,6 +23,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  ExternalLink,
 } from 'lucide-react';
 
 interface UserSession {
@@ -146,6 +147,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       title: 'Analíticas',
       items: [
         { label: 'Analíticas', href: '/user-stats', icon: BarChart3 },
+        {
+          label: 'Broslytics ↗',
+          href: '#',
+          icon: ExternalLink,
+          isPopUp: true,
+          action: () => {
+            window.open(
+              'https://analytics.broslunas.com/share/EbieAikRrucZqa03',
+              'BroslyticsWindow',
+              'width=1280,height=850,scrollbars=yes,resizable=yes'
+            );
+          },
+        },
       ],
     },
   ];
@@ -233,6 +247,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     const Icon = item.icon;
                     const isActive =
                       pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
+
+                    if (item.isPopUp) {
+                      return (
+                        <button
+                          key={item.label}
+                          onClick={item.action}
+                          title={collapsed ? item.label : 'Abrir Broslytics en ventana emergente'}
+                          className={`w-full flex items-center gap-2.5 rounded-lg text-xs font-semibold transition ${
+                            collapsed ? 'p-2 justify-center' : 'px-2.5 py-1.5'
+                          } text-purple-300 hover:text-white bg-purple-950/30 hover:bg-purple-900/50 border border-purple-800/40 text-left`}
+                        >
+                          <Icon className="w-3.5 h-3.5 shrink-0 text-purple-400" />
+                          {!collapsed && <span className="truncate">{item.label}</span>}
+                        </button>
+                      );
+                    }
 
                     return (
                       <Link
