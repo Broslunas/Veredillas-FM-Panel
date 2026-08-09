@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import R2Uploader from '@/components/R2Uploader';
+import { uploadFileToR2ViaPresignedUrl } from '@/lib/r2-client';
 import {
   Save,
   ArrowLeft,
@@ -104,24 +105,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
   };
 
   const uploadR2File = async (file: File, folder: string, target: 'audio' | 'video', entityId?: string) => {
-    const uploadData = new FormData();
-    uploadData.append('file', file);
-    uploadData.append('folder', folder);
-    uploadData.append('target', target);
-    if (entityId) uploadData.append('fileId', entityId);
-
-    const res = await fetch('/api/r2/upload', {
-      method: 'POST',
-      body: uploadData,
-    });
-
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || 'Error al subir archivo a R2');
-    }
-
-    const data = await res.json();
-    return data.url as string;
+    return uploadFileToR2ViaPresignedUrl(file, { folder, target, entityId });
   };
 
   const audioBufferToWav = (buffer: AudioBuffer): Blob => {

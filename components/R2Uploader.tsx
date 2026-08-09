@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { UploadCloud, CheckCircle2, AlertCircle, Copy, Loader2, Music, Image as ImageIcon } from 'lucide-react';
+import { uploadFileToR2ViaPresignedUrl } from '@/lib/r2-client';
 
 interface R2UploaderProps {
   label: string;
@@ -27,6 +28,7 @@ export default function R2Uploader({
   helperText,
 }: R2UploaderProps) {
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -43,29 +45,19 @@ export default function R2Uploader({
     }
 
     setUploading(true);
+    setUploadProgress(0);
     setError(null);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('folder', folder);
-      formData.append('target', target);
-      if (entityId) formData.append('fileId', entityId);
-
-      const res = await fetch('/api/r2/upload', {
-        method: 'POST',
-        body: formData,
+      const url = await uploadFileToR2ViaPresignedUrl(file, {
+        folder,
+        target,
+        entityId,
+        onProgress: setUploadProgress,
       });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Error al subir el archivo');
-      }
-
-      const data = await res.json();
-      onChange(data.url);
+      onChange(url);
       if (onUploadSuccess) {
-        await onUploadSuccess(file, data.url);
+        await onUploadSuccess(file, url);
       }
     } catch (err: any) {
       setError(err.message || 'Error en la subida a R2');
@@ -119,7 +111,7 @@ export default function R2Uploader({
           {uploading ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
-              <span>Subiendo a R2...</span>
+              <span>Subiendo a R2... {uploadProgress}%</span>
             </>
           ) : (
             <>

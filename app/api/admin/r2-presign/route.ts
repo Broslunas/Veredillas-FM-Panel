@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { isAuthorizedAdmin } from '@/lib/api-guard';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { getBucketByType, getS3ClientForBucket, buildPublicUrl } from '@/lib/r2';
+import { resolveUploadDestination, getS3ClientForBucket, buildPublicUrl, getBucketUsage, R2UploadTarget } from '@/lib/r2';
 
 export async function POST(request: Request) {
   try {
@@ -11,20 +11,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }
 
-    const { fileName, contentType } = await request.json();
+    const { fileName, contentType, folder, target, fileId, fileSize } = await request.json();
 
     if (!fileName || !contentType) {
       return NextResponse.json({ error: 'Faltan parámetros (fileName, contentType)' }, { status: 400 });
     }
 
-    const bucket = await getBucketByType('multimedia');
-    if (!bucket) {
-      return NextResponse.json({ error: 'No hay ningún bucket predeterminado configurado para multimedia' }, { status: 500 });
-    }
+    const { bucket, key } = await resolveUploadDestination(
+      fileName,
+      contentType,
+      folder || 'social-clips',
+      (target as R2UploadTarget) || 'auto',
+      fileId || undefined
+    );
 
-    const timestamp = Date.now();
-    const sanitizedName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const key = `social-clips/${timestamp}_${sanitizedName}`;
+    if (typeof fileSize === 'number') {
+      const currentUsage = await getBucketUsage(bucket.bucketName);
+      if (currentUsage.totalBytes + fileSize > bucket.maxBytes) {
+        return NextResponse.json({ error: 'Límite de bucket alcanzado. No se puede subir este archivo.' }, { status: 400 });
+      }
+    }
 
     const command = new PutObjectCommand({
       Bucket: bucket.bucketName,

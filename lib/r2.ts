@@ -160,14 +160,13 @@ function slugifyEntityId(entityId: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-export async function uploadFileToR2(
-  fileBuffer: Buffer,
+export async function resolveUploadDestination(
   fileName: string,
   contentType: string,
   folder: string = 'uploads',
   target: R2UploadTarget = 'auto',
   entityId?: string
-): Promise<{ key: string; url: string; bucket: string }> {
+): Promise<{ bucket: IR2Bucket; key: string }> {
   const { isImage, isAudio, isVideo } = getMediaTypeFromFile(contentType, fileName);
 
   let resolvedType: R2BucketType = 'multimedia';
@@ -211,6 +210,20 @@ export async function uploadFileToR2(
     const safeName = `${slugName || 'file'}-${randomSuffix}${extension}`;
     key = `${resolvedFolder}/${safeName}`;
   }
+
+  return { bucket, key };
+}
+
+export async function uploadFileToR2(
+  fileBuffer: Buffer,
+  fileName: string,
+  contentType: string,
+  folder: string = 'uploads',
+  target: R2UploadTarget = 'auto',
+  entityId?: string
+): Promise<{ key: string; url: string; bucket: string }> {
+  const { bucket, key } = await resolveUploadDestination(fileName, contentType, folder, target, entityId);
+  const client = getS3ClientForBucket(bucket);
 
   const currentUsage = await getBucketUsage(bucket.bucketName);
   if (currentUsage.totalBytes + fileBuffer.length > bucket.maxBytes) {
