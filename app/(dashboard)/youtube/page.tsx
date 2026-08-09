@@ -41,6 +41,10 @@ import {
   CheckSquare,
   Square,
   Layers,
+  ListOrdered,
+  ArrowUp,
+  ArrowDown,
+  Plus,
 } from 'lucide-react';
 
 interface YouTubeChannel {
@@ -76,6 +80,15 @@ interface YouTubePlaylistItem {
   itemCount: number;
   privacyStatus: 'public' | 'unlisted' | 'private';
   thumbnail: string;
+}
+
+interface YouTubePlaylistItemVideo {
+  id: string; // playlistItemId
+  videoId: string;
+  title: string;
+  description: string;
+  thumbnail: string;
+  position: number;
 }
 
 interface YouTubeCommentThreadItem {
@@ -152,6 +165,14 @@ export default function YouTubeStudioPage() {
   const [playlistDesc, setPlaylistDesc] = useState('');
   const [playlistPrivacy, setPlaylistPrivacy] = useState<'public' | 'unlisted' | 'private'>('public');
   const [savingPlaylist, setSavingPlaylist] = useState(false);
+
+  // Manage Playlist Items Modal states
+  const [managingPlaylist, setManagingPlaylist] = useState<YouTubePlaylistItem | null>(null);
+  const [playlistItems, setPlaylistItems] = useState<YouTubePlaylistItemVideo[]>([]);
+  const [loadingPlaylistItems, setLoadingPlaylistItems] = useState(false);
+  const [movingItemId, setMovingItemId] = useState<string | null>(null);
+  const [newPlaylistItemVideoId, setNewPlaylistItemVideoId] = useState('');
+  const [addingItemToManagingPlaylist, setAddingItemToManagingPlaylist] = useState(false);
 
   // Add Video to Playlist Modal
   const [addToPlaylistVideo, setAddToPlaylistVideo] = useState<YouTubeVideoItem | null>(null);
@@ -480,6 +501,108 @@ export default function YouTubeStudioPage() {
       fetchPlaylists();
     } catch (err: any) {
       alert(err.message);
+    }
+  };
+
+  // Manage Playlist Items Handlers
+  const openManagePlaylist = async (pl: YouTubePlaylistItem) => {
+    setManagingPlaylist(pl);
+    setLoadingPlaylistItems(true);
+    setPlaylistItems([]);
+    setNewPlaylistItemVideoId('');
+    try {
+      const res = await fetch(`/api/youtube/playlists/${pl.id}/items`);
+      const data = await res.json();
+      if (res.ok) {
+        setPlaylistItems(data.items || []);
+      }
+    } catch (err) {
+      console.error('Error al obtener vídeos de la lista:', err);
+    } finally {
+      setLoadingPlaylistItems(false);
+    }
+  };
+
+  const handleMovePlaylistItem = async (index: number, direction: 'up' | 'down') => {
+    if (!managingPlaylist) return;
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= playlistItems.length) return;
+
+    const currentItem = playlistItems[index];
+    const targetItem = playlistItems[targetIndex];
+    setMovingItemId(currentItem.id);
+
+    try {
+      const res = await fetch(`/api/youtube/playlists/${managingPlaylist.id}/items`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playlistItemId: currentItem.id,
+          videoId: currentItem.videoId,
+          position: targetIndex,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Error al reordenar elemento');
+      }
+
+      const newItems = [...playlistItems];
+      newItems[index] = { ...targetItem, position: index };
+      newItems[targetIndex] = { ...currentItem, position: targetIndex };
+      newItems.sort((a, b) => a.position - b.position);
+      setPlaylistItems(newItems);
+    } catch (err: any) {
+      alert(err.message || 'Error al reordenar vídeo');
+    } finally {
+      setMovingItemId(null);
+    }
+  };
+
+  const handleRemovePlaylistItem = async (playlistItemId: string) => {
+    if (!managingPlaylist) return;
+    if (!confirm('¿Seguro que deseas quitar este vídeo de la lista de reproducción?')) return;
+
+    try {
+      const res = await fetch(
+        `/api/youtube/playlists/${managingPlaylist.id}/items?playlistItemId=${playlistItemId}`,
+        { method: 'DELETE' }
+      );
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Error al quitar vídeo');
+      }
+
+      setPlaylistItems((prev) => prev.filter((i) => i.id !== playlistItemId));
+      fetchPlaylists();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleAddVideoToManagingPlaylist = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!managingPlaylist || !newPlaylistItemVideoId) return;
+    setAddingItemToManagingPlaylist(true);
+
+    try {
+      const res = await fetch(`/api/youtube/playlists/${managingPlaylist.id}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId: newPlaylistItemVideoId }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al añadir vídeo');
+
+      setNewPlaylistItemVideoId('');
+      openManagePlaylist(managingPlaylist);
+      fetchPlaylists();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setAddingItemToManagingPlaylist(false);
     }
   };
 
@@ -1505,6 +1628,13 @@ export default function YouTubeStudioPage() {
 
                     <div className="flex items-center gap-1">
                       <button
+                        onClick={() => openManagePlaylist(pl)}
+                        className="flex items-center gap-1 px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-indigo-300 hover:text-white text-xs font-semibold rounded-lg border border-zinc-700/60 transition"
+                        title="Gestionar y reordenar vídeos de la Playlist"
+                      >
+                        <ListOrdered className="w-3.5 h-3.5 text-indigo-400" /> Elementos
+                      </button>
+                      <button
                         onClick={() => openEditPlaylist(pl)}
                         className="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded-lg transition"
                         title="Editar detalles de la Playlist"
@@ -2194,6 +2324,138 @@ export default function YouTubeStudioPage() {
               </button>
               <button onClick={handleCropSave} className="px-4 py-2 bg-indigo-600 text-xs text-white rounded-lg font-semibold">
                 Recortar y Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MANAGE PLAYLIST ITEMS MODAL (Reorder, Add, Remove) */}
+      {managingPlaylist && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/85 backdrop-blur-md p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh]">
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/60">
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-100 flex items-center gap-2">
+                  <ListOrdered className="w-4 h-4 text-indigo-400" />
+                  Elementos de la Playlist: "{managingPlaylist.title}"
+                </h3>
+                <p className="text-xs text-zinc-400">
+                  Reordena vídeos con ⬆️/⬇️, elimina o añade vídeos.
+                  <a
+                    href={`https://youtube.com/playlist?list=${managingPlaylist.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-indigo-400 hover:underline inline-flex items-center gap-1 font-medium ml-1.5"
+                  >
+                    Configurar en YouTube <ExternalLink className="w-3 h-3" />
+                  </a>
+                </p>
+              </div>
+              <button onClick={() => setManagingPlaylist(null)} className="text-zinc-400 hover:text-zinc-200">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Add Video Bar inside Modal */}
+            <div className="p-4 border-b border-zinc-800/80 bg-zinc-900/90">
+              <form onSubmit={handleAddVideoToManagingPlaylist} className="flex flex-col sm:flex-row items-center gap-2">
+                <select
+                  value={newPlaylistItemVideoId}
+                  onChange={(e) => setNewPlaylistItemVideoId(e.target.value)}
+                  className="flex-1 w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="">-- Selecciona un vídeo de tu canal para añadirlo --</option>
+                  {videos.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.title} ({v.durationFormatted})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="submit"
+                  disabled={addingItemToManagingPlaylist || !newPlaylistItemVideoId}
+                  className="w-full sm:w-auto flex items-center justify-center gap-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shrink-0 transition"
+                >
+                  {addingItemToManagingPlaylist ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                  Añadir Vídeo
+                </button>
+              </form>
+            </div>
+
+            {/* Video List */}
+            <div className="p-5 overflow-y-auto space-y-3 flex-1">
+              {loadingPlaylistItems ? (
+                <div className="py-12 text-center text-zinc-400 text-xs flex flex-col items-center gap-2">
+                  <Loader2 className="w-6 h-6 animate-spin text-indigo-400" />
+                  <span>Cargando vídeos de la playlist...</span>
+                </div>
+              ) : playlistItems.length === 0 ? (
+                <div className="py-12 text-center border border-dashed border-zinc-800 rounded-xl bg-zinc-950/40 text-zinc-500 text-xs">
+                  Esta lista de reproducción no contiene vídeos actualmente. Usa el buscador superior para añadir el primero.
+                </div>
+              ) : (
+                playlistItems.map((item, idx) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between gap-3 bg-zinc-950/60 border border-zinc-800/80 rounded-xl p-3 hover:border-zinc-700 transition"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-xs font-mono font-bold text-zinc-500 w-6 text-center">
+                        #{idx + 1}
+                      </span>
+                      {item.thumbnail ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={item.thumbnail} alt={item.title} className="w-16 h-9 object-cover rounded-md border border-zinc-800 shrink-0" />
+                      ) : (
+                        <div className="w-16 h-9 bg-zinc-900 rounded-md border border-zinc-800 flex items-center justify-center shrink-0">
+                          <Film className="w-4 h-4 text-zinc-600" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <h4 className="text-xs font-semibold text-zinc-100 truncate">{item.title}</h4>
+                        <p className="text-[10px] text-zinc-500 font-mono truncate">{item.videoId}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => handleMovePlaylistItem(idx, 'up')}
+                        disabled={idx === 0 || movingItemId === item.id}
+                        className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 text-zinc-300 hover:text-white transition"
+                        title="Mover arriba"
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleMovePlaylistItem(idx, 'down')}
+                        disabled={idx === playlistItems.length - 1 || movingItemId === item.id}
+                        className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 text-zinc-300 hover:text-white transition"
+                        title="Mover abajo"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleRemovePlaylistItem(item.id)}
+                        className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-950/30 transition ml-1"
+                        title="Quitar de la lista"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3 bg-zinc-950/60 border-t border-zinc-800 flex items-center justify-end">
+              <button
+                onClick={() => setManagingPlaylist(null)}
+                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-200 rounded-lg font-medium transition"
+              >
+                Cerrar
               </button>
             </div>
           </div>

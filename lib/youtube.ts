@@ -514,6 +514,98 @@ export async function addVideoToYouTubePlaylist(
   }
 }
 
+export interface YouTubePlaylistItemVideo {
+  id: string; // playlistItemId
+  videoId: string;
+  title: string;
+  description: string;
+  thumbnail: string;
+  position: number;
+}
+
+export async function getYouTubePlaylistItems(playlistId: string): Promise<YouTubePlaylistItemVideo[]> {
+  const accessToken = await getFreshAccessToken();
+
+  const res = await fetch(
+    `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=50`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+
+  const data = await res.json();
+  if (!res.ok || !data.items) return [];
+
+  return data.items.map((item: any): YouTubePlaylistItemVideo => ({
+    id: item.id,
+    videoId: item.snippet?.resourceId?.videoId || item.contentDetails?.videoId || '',
+    title: item.snippet?.title || '',
+    description: item.snippet?.description || '',
+    thumbnail: item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.default?.url || '',
+    position: item.snippet?.position || 0,
+  }));
+}
+
+export async function reorderYouTubePlaylistItem(
+  playlistItemId: string,
+  playlistId: string,
+  videoId: string,
+  newPosition: number
+): Promise<void> {
+  const accessToken = await getFreshAccessToken();
+
+  const body = {
+    id: playlistItemId,
+    snippet: {
+      playlistId,
+      resourceId: {
+        kind: 'youtube#video',
+        videoId,
+      },
+      position: newPosition,
+    },
+  };
+
+  const res = await fetch(
+    'https://www.googleapis.com/youtube/v3/playlistItems?part=snippet',
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!res.ok) {
+    const errText = await res.text();
+    if (errText.includes('manualSortRequired') || errText.includes('MANUAL')) {
+      throw new Error(
+        'Esta lista de reproducción en YouTube tiene activada la ordenación automática (ej. por fecha). Para poder reordenar los vídeos manualmente con las flechas ⬆️/⬇️, ve a la lista en YouTube y cambia su ordenación a "Manual (Orden personalizado)".'
+      );
+    }
+    throw new Error(`Error al reordenar vídeo en la lista: ${errText}`);
+  }
+}
+
+export async function removeYouTubePlaylistItem(playlistItemId: string): Promise<void> {
+  const accessToken = await getFreshAccessToken();
+
+  const res = await fetch(
+    `https://www.googleapis.com/youtube/v3/playlistItems?id=${playlistItemId}`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Error al quitar vídeo de la lista de reproducción: ${errText}`);
+  }
+}
+
 /**
  * Comments & Moderation API
  */
