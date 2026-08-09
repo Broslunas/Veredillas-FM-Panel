@@ -7,8 +7,10 @@ interface R2UploaderProps {
   label: string;
   accept?: string;
   folder?: string;
+  target?: 'auto' | 'image' | 'audio' | 'video';
   value?: string;
   onChange: (url: string) => void;
+  onUploadSuccess?: (file: File, url: string) => void | Promise<void>;
   helperText?: string;
 }
 
@@ -16,8 +18,10 @@ export default function R2Uploader({
   label,
   accept = 'image/*,audio/*',
   folder = 'uploads',
+  target = 'auto',
   value = '',
   onChange,
+  onUploadSuccess,
   helperText,
 }: R2UploaderProps) {
   const [uploading, setUploading] = useState(false);
@@ -35,6 +39,7 @@ export default function R2Uploader({
       const formData = new FormData();
       formData.append('file', file);
       formData.append('folder', folder);
+      formData.append('target', target);
 
       const res = await fetch('/api/r2/upload', {
         method: 'POST',
@@ -48,6 +53,9 @@ export default function R2Uploader({
 
       const data = await res.json();
       onChange(data.url);
+      if (onUploadSuccess) {
+        await onUploadSuccess(file, data.url);
+      }
     } catch (err: any) {
       setError(err.message || 'Error en la subida a R2');
     } finally {

@@ -167,7 +167,7 @@ export default function GuestEditorForm({ initialData, isEdit = false }: GuestEd
         <R2Uploader
           label="Foto de Perfil (R2 Upload)"
           accept="image/*"
-          folder="guests/avatars"
+          folder="guest"
           value={formData.image}
           onChange={(url) => setFormData({ ...formData, image: url })}
           helperText="Foto de perfil en formato cuadrado recomendado."

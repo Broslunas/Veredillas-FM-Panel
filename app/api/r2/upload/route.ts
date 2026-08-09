@@ -12,6 +12,7 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
     const folder = (formData.get('folder') as string) || 'uploads';
+    const target = (formData.get('target') as string) as 'auto' | 'image' | 'audio' | 'video' | undefined;
 
     if (!file) {
       return NextResponse.json({ error: 'No se ha adjuntado ningún archivo' }, { status: 400 });
@@ -20,7 +21,13 @@ export async function POST(request: Request) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const result = await uploadFileToR2(buffer, file.name, file.type || 'application/octet-stream', folder);
+    const result = await uploadFileToR2(
+      buffer,
+      file.name,
+      file.type || 'application/octet-stream',
+      folder,
+      target || 'auto'
+    );
 
     return NextResponse.json({
       success: true,

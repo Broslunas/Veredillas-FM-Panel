@@ -53,6 +53,12 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Media upload states
+  const [videoUploading, setVideoUploading] = useState(false);
+  const [videoUploadStatus, setVideoUploadStatus] = useState<string>('');
+  const [videoUploadError, setVideoUploadError] = useState<string | null>(null);
+  const [audioExtractionStatus, setAudioExtractionStatus] = useState<string>('');
+
   // Deepgram AI Transcription States
   const [deepgramLoading, setDeepgramLoading] = useState(false);
   const [deepgramStatus, setDeepgramStatus] = useState('');
@@ -67,7 +73,6 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
     pubDate: initialData?.pubDate ? new Date(initialData.pubDate).toISOString().slice(0, 16) : new Date().toISOString().slice(0, 16),
     author: initialData?.author || 'Veredillas FM',
     image: initialData?.image || '',
-    spotifyUrl: initialData?.spotifyUrl || '',
     audioUrl: initialData?.audioUrl || '',
     duration: initialData?.duration || '',
     season: initialData?.season || '',
@@ -96,6 +101,98 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
         .replace(/^-|-$/g, '');
     }
     setFormData((prev) => ({ ...prev, ...updated }));
+  };
+
+  const uploadR2File = async (file: File, folder: string, target: 'audio' | 'video') => {
+    const uploadData = new FormData();
+    uploadData.append('file', file);
+    uploadData.append('folder', folder);
+    uploadData.append('target', target);
+
+    const res = await fetch('/api/r2/upload', {
+      method: 'POST',
+      body: uploadData,
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Error al subir archivo a R2');
+    }
+
+    const data = await res.json();
+    return data.url as string;
+  };
+
+  const audioBufferToWav = (buffer: AudioBuffer): Blob => {
+    const numChannels = buffer.numberOfChannels;
+    const sampleRate = buffer.sampleRate;
+    const format = 1;
+    const bitDepth = 16;
+    const bytesPerSample = bitDepth / 8;
+    const blockAlign = numChannels * bytesPerSample;
+    const dataLength = buffer.length * blockAlign;
+    const bufferLength = 44 + dataLength;
+    const arrayBuffer = new ArrayBuffer(bufferLength);
+    const view = new DataView(arrayBuffer);
+
+    const writeString = (offset: number, str: string) => {
+      for (let i = 0; i < str.length; i += 1) {
+        view.setUint8(offset + i, str.charCodeAt(i));
+      }
+    };
+
+    let offset = 0;
+    writeString(offset, 'RIFF'); offset += 4;
+    view.setUint32(offset, 36 + dataLength, true); offset += 4;
+    writeString(offset, 'WAVE'); offset += 4;
+    writeString(offset, 'fmt '); offset += 4;
+    view.setUint32(offset, 16, true); offset += 4;
+    view.setUint16(offset, format, true); offset += 2;
+    view.setUint16(offset, numChannels, true); offset += 2;
+    view.setUint32(offset, sampleRate, true); offset += 4;
+    view.setUint32(offset, sampleRate * blockAlign, true); offset += 4;
+    view.setUint16(offset, blockAlign, true); offset += 2;
+    view.setUint16(offset, bitDepth, true); offset += 2;
+    writeString(offset, 'data'); offset += 4;
+    view.setUint32(offset, dataLength, true); offset += 4;
+
+    const interleaved = new Float32Array(buffer.length * numChannels);
+    for (let channel = 0; channel < numChannels; channel += 1) {
+      const channelData = buffer.getChannelData(channel);
+      for (let i = 0; i < channelData.length; i += 1) {
+        interleaved[i * numChannels + channel] = channelData[i];
+      }
+    }
+
+    let pos = 44;
+    for (let i = 0; i < interleaved.length; i += 1) {
+      const sample = Math.max(-1, Math.min(1, interleaved[i]));
+      view.setInt16(pos, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      pos += 2;
+    }
+
+    return new Blob([view], { type: 'audio/wav' });
+  };
+
+  const extractAudioFromVideoFile = async (file: File): Promise<Blob> => {
+    const audioContext = new AudioContext();
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const decodedBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      const offlineContext = new OfflineAudioContext(
+        decodedBuffer.numberOfChannels,
+        decodedBuffer.length,
+        decodedBuffer.sampleRate
+      );
+      const source = offlineContext.createBufferSource();
+      source.buffer = decodedBuffer;
+      source.connect(offlineContext.destination);
+      source.start(0);
+      const renderedBuffer = await offlineContext.startRendering();
+      return audioBufferToWav(renderedBuffer);
+    } finally {
+      await audioContext.close();
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -500,43 +597,63 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
             folder="episodes/covers"
             value={formData.image}
             onChange={(url) => setFormData({ ...formData, image: url })}
-            helperText="Formato recomendado: WebP / JPG / PNG (1:1 relación de aspecto)."
+            helperText="Formato recomendado: WebP / JPG / PNG (16:9 relación de aspecto)."
           />
 
           <R2Uploader
             label="Archivo de Audio Principal (R2 Direct Upload)"
             accept="audio/*"
-            folder="episodes/audio"
+            folder="audios"
             value={formData.audioUrl}
             onChange={(url) => setFormData({ ...formData, audioUrl: url })}
             helperText="Subida directa a Cloudflare R2 sin consumo de ancho de banda de Vercel. Formato MP3 o WAV."
           />
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-            <div>
-              <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400 mb-1">
-                URL de Spotify
-              </label>
-              <input
-                type="text"
-                value={formData.spotifyUrl}
-                onChange={(e) => setFormData({ ...formData, spotifyUrl: e.target.value })}
-                placeholder="https://open.spotify.com/episode/..."
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-100 font-mono placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition"
-              />
-            </div>
+          <div className="space-y-4 pt-2">
+            <R2Uploader
+              label="Subir Vídeo (R2 Private Video Bucket)"
+              accept="video/*"
+              folder="videos"
+              target="video"
+              value={formData.videoUrl}
+              onChange={(url) => setFormData((prev) => ({ ...prev, videoUrl: url }))}
+              onUploadSuccess={async (file) => {
+                setVideoUploadError(null);
+                setVideoUploadStatus('Vídeo subido correctamente. Extrayendo audio...');
+                setAudioExtractionStatus('');
+                setVideoUploading(true);
 
-            <div>
-              <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400 mb-1">
-                URL de Vídeo (YouTube / Spotify Video)
-              </label>
-              <input
-                type="text"
-                value={formData.videoUrl}
-                onChange={(e) => setFormData({ ...formData, videoUrl: e.target.value })}
-                placeholder="https://youtube.com/watch?v=..."
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-100 font-mono placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition"
-              />
+                try {
+                  const audioBlob = await extractAudioFromVideoFile(file);
+                  setAudioExtractionStatus('Subiendo audio extraído al bucket CDN...');
+                  const audioFileName = file.name.replace(/\.[^/.]+$/, '') + '.wav';
+                  const audioFile = new File([audioBlob], audioFileName, { type: 'audio/wav' });
+                  const audioUrl = await uploadR2File(audioFile, 'episodes/audio', 'audio');
+                  setFormData((prev) => ({ ...prev, audioUrl }));
+                  setAudioExtractionStatus('Audio extraído y subido correctamente.');
+                  setVideoUploadStatus('Carga de vídeo completada.');
+                } catch (error: any) {
+                  console.error(error);
+                  setVideoUploadError(error.message || 'Error al extraer el audio del vídeo.');
+                  setVideoUploadStatus('');
+                  setAudioExtractionStatus('');
+                } finally {
+                  setVideoUploading(false);
+                }
+              }}
+              helperText="Sube un archivo de vídeo y extrae automáticamente el audio para el episodio."
+            />
+
+            <div className="grid grid-cols-1 gap-2 text-xs font-mono text-zinc-400">
+              {videoUploadStatus && <div className="text-zinc-300">{videoUploadStatus}</div>}
+              {audioExtractionStatus && <div>{audioExtractionStatus}</div>}
+              {videoUploadError && <div className="text-rose-400">{videoUploadError}</div>}
+              {formData.videoUrl && (
+                <div className="text-zinc-300">URL de vídeo cargado: {formData.videoUrl}</div>
+              )}
+              {formData.audioUrl && (
+                <div className="text-zinc-300">URL de audio extraído: {formData.audioUrl}</div>
+              )}
             </div>
           </div>
         </div>
