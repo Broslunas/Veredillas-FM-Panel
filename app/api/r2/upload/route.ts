@@ -13,6 +13,7 @@ export async function POST(request: Request) {
     const file = formData.get('file') as File | null;
     const folder = (formData.get('folder') as string) || 'uploads';
     const target = (formData.get('target') as string) as 'auto' | 'image' | 'audio' | 'video' | undefined;
+    const fileId = (formData.get('fileId') as string) || undefined;
 
     if (!file) {
       return NextResponse.json({ error: 'No se ha adjuntado ningún archivo' }, { status: 400 });
@@ -26,7 +27,8 @@ export async function POST(request: Request) {
       file.name,
       file.type || 'application/octet-stream',
       folder,
-      target || 'auto'
+      target || 'auto',
+      fileId
     );
 
     return NextResponse.json({

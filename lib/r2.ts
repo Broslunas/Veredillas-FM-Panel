@@ -4,6 +4,7 @@ import {
   S3Client,
   PutObjectCommand,
   DeleteObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
   CopyObjectCommand,
@@ -115,12 +116,57 @@ export async function getBucketUsage(bucketName: string) {
   return { totalBytes, totalObjects };
 }
 
+async function objectExists(client: S3Client, bucketName: string, key: string): Promise<boolean> {
+  try {
+    await client.send(new HeadObjectCommand({ Bucket: bucketName, Key: key }));
+    return true;
+  } catch (error: any) {
+    if (error?.$metadata?.httpStatusCode === 404 || error?.name === 'NotFound') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function resolveVersionedKey(
+  client: S3Client,
+  bucketName: string,
+  folder: string,
+  baseName: string,
+  extension: string
+): Promise<string> {
+  const candidate = `${folder}/${baseName}${extension}`;
+  if (!(await objectExists(client, bucketName, candidate))) {
+    return candidate;
+  }
+
+  for (let version = 2; version < 1000; version += 1) {
+    const versionedCandidate = `${folder}/${baseName}-v${version}${extension}`;
+    if (!(await objectExists(client, bucketName, versionedCandidate))) {
+      return versionedCandidate;
+    }
+  }
+
+  throw new Error('No se pudo generar un nombre de archivo disponible tras 999 versiones');
+}
+
+function slugifyEntityId(entityId: string): string {
+  return entityId
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 export async function uploadFileToR2(
   fileBuffer: Buffer,
   fileName: string,
   contentType: string,
   folder: string = 'uploads',
-  target: R2UploadTarget = 'auto'
+  target: R2UploadTarget = 'auto',
+  entityId?: string
 ): Promise<{ key: string; url: string; bucket: string }> {
   const { isImage, isAudio, isVideo } = getMediaTypeFromFile(contentType, fileName);
 
@@ -144,25 +190,32 @@ export async function uploadFileToR2(
   }
 
   const extension = extname(fileName).toLowerCase();
-  const baseName = fileName.replace(new RegExp(`${extension}$`, 'i'), '') || 'file';
-  const slugName = baseName
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 160);
-  const randomSuffix = randomBytes(4).toString('hex');
-  const safeName = `${slugName || 'file'}-${randomSuffix}${extension}`;
+  const client = getS3ClientForBucket(bucket);
+
+  let key: string;
+  const safeEntityId = entityId ? slugifyEntityId(entityId) : '';
+
+  if (safeEntityId) {
+    key = await resolveVersionedKey(client, bucket.bucketName, resolvedFolder, safeEntityId, extension);
+  } else {
+    const baseName = fileName.replace(new RegExp(`${extension}$`, 'i'), '') || 'file';
+    const slugName = baseName
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/\p{Diacritic}/gu, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 160);
+    const randomSuffix = randomBytes(4).toString('hex');
+    const safeName = `${slugName || 'file'}-${randomSuffix}${extension}`;
+    key = `${resolvedFolder}/${safeName}`;
+  }
 
   const currentUsage = await getBucketUsage(bucket.bucketName);
   if (currentUsage.totalBytes + fileBuffer.length > bucket.maxBytes) {
     throw new Error('Límite de bucket alcanzado. No se puede subir este archivo.');
   }
-
-  const key = `${resolvedFolder}/${safeName}`;
-  const client = getS3ClientForBucket(bucket);
 
   const command = new PutObjectCommand({
     Bucket: bucket.bucketName,

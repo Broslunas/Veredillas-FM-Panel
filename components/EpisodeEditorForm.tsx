@@ -103,11 +103,12 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
     setFormData((prev) => ({ ...prev, ...updated }));
   };
 
-  const uploadR2File = async (file: File, folder: string, target: 'audio' | 'video') => {
+  const uploadR2File = async (file: File, folder: string, target: 'audio' | 'video', entityId?: string) => {
     const uploadData = new FormData();
     uploadData.append('file', file);
     uploadData.append('folder', folder);
     uploadData.append('target', target);
+    if (entityId) uploadData.append('fileId', entityId);
 
     const res = await fetch('/api/r2/upload', {
       method: 'POST',
@@ -594,7 +595,8 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
           <R2Uploader
             label="Imagen de Portada (R2 Upload)"
             accept="image/*"
-            folder="episodes/covers"
+            folder="images"
+            entityId={formData.slug}
             value={formData.image}
             onChange={(url) => setFormData({ ...formData, image: url })}
             helperText="Formato recomendado: WebP / JPG / PNG (16:9 relación de aspecto)."
@@ -604,6 +606,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
             label="Archivo de Audio Principal (R2 Direct Upload)"
             accept="audio/*"
             folder="audios"
+            entityId={formData.slug}
             value={formData.audioUrl}
             onChange={(url) => setFormData({ ...formData, audioUrl: url })}
             helperText="Subida directa a Cloudflare R2 sin consumo de ancho de banda de Vercel. Formato MP3 o WAV."
@@ -615,6 +618,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
               accept="video/*"
               folder="videos"
               target="video"
+              entityId={formData.slug}
               value={formData.videoUrl}
               onChange={(url) => setFormData((prev) => ({ ...prev, videoUrl: url }))}
               onUploadSuccess={async (file) => {
@@ -628,7 +632,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
                   setAudioExtractionStatus('Subiendo audio extraído al bucket CDN...');
                   const audioFileName = file.name.replace(/\.[^/.]+$/, '') + '.wav';
                   const audioFile = new File([audioBlob], audioFileName, { type: 'audio/wav' });
-                  const audioUrl = await uploadR2File(audioFile, 'episodes/audio', 'audio');
+                  const audioUrl = await uploadR2File(audioFile, 'audios', 'audio', formData.slug);
                   setFormData((prev) => ({ ...prev, audioUrl }));
                   setAudioExtractionStatus('Audio extraído y subido correctamente.');
                   setVideoUploadStatus('Carga de vídeo completada.');
@@ -738,7 +742,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
                 <label className="text-zinc-300 font-mono text-[11px] font-semibold">Fuente de Audio / Vídeo</label>
                 <input
                   type="text"
-                  placeholder="https://cdn.veredillasfm.es/episodes/audio/ejemplo.mp3"
+                  placeholder="https://pub-<account_id>.r2.dev/audios/ejemplo.mp3"
                   value={formData.audioUrl || formData.videoUrl || ''}
                   onChange={(e) => setFormData((prev) => ({ ...prev, audioUrl: e.target.value }))}
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-100 font-mono focus:outline-none focus:border-indigo-500"

@@ -168,6 +168,7 @@ export default function GuestEditorForm({ initialData, isEdit = false }: GuestEd
           label="Foto de Perfil (R2 Upload)"
           accept="image/*"
           folder="guest"
+          entityId={formData.slug}
           value={formData.image}
           onChange={(url) => setFormData({ ...formData, image: url })}
           helperText="Foto de perfil en formato cuadrado recomendado."

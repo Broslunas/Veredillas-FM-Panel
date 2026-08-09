@@ -8,6 +8,7 @@ interface R2UploaderProps {
   accept?: string;
   folder?: string;
   target?: 'auto' | 'image' | 'audio' | 'video';
+  entityId?: string;
   value?: string;
   onChange: (url: string) => void;
   onUploadSuccess?: (file: File, url: string) => void | Promise<void>;
@@ -19,6 +20,7 @@ export default function R2Uploader({
   accept = 'image/*,audio/*',
   folder = 'uploads',
   target = 'auto',
+  entityId,
   value = '',
   onChange,
   onUploadSuccess,
@@ -28,9 +30,17 @@ export default function R2Uploader({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const idRequiredButMissing = entityId !== undefined && !entityId.trim();
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (idRequiredButMissing) {
+      setError('Completa el campo de nombre/slug antes de subir el archivo.');
+      e.target.value = '';
+      return;
+    }
 
     setUploading(true);
     setError(null);
@@ -40,6 +50,7 @@ export default function R2Uploader({
       formData.append('file', file);
       formData.append('folder', folder);
       formData.append('target', target);
+      if (entityId) formData.append('fileId', entityId);
 
       const res = await fetch('/api/r2/upload', {
         method: 'POST',
@@ -100,10 +111,10 @@ export default function R2Uploader({
           )}
         </div>
 
-        <label className={`cursor-pointer inline-flex items-center justify-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium transition ${
-          uploading
+        <label className={`inline-flex items-center justify-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium transition ${
+          uploading || idRequiredButMissing
             ? 'bg-zinc-900 border-zinc-800 text-zinc-500 cursor-not-allowed'
-            : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-200'
+            : 'cursor-pointer bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-200'
         }`}>
           {uploading ? (
             <>
@@ -120,11 +131,15 @@ export default function R2Uploader({
             type="file"
             accept={accept}
             onChange={handleFileChange}
-            disabled={uploading}
+            disabled={uploading || idRequiredButMissing}
             className="hidden"
           />
         </label>
       </div>
+
+      {idRequiredButMissing && !error && (
+        <p className="text-xs text-amber-400">Completa el campo de nombre/slug antes de subir el archivo.</p>
+      )}
 
       {helperText && <p className="text-xs text-zinc-500">{helperText}</p>}
 

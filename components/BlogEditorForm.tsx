@@ -211,7 +211,8 @@ export default function BlogEditorForm({ initialData, isEdit = false }: BlogEdit
         <R2Uploader
           label="Imagen de Portada (R2 Upload)"
           accept="image/*"
-          folder="images"
+          folder="blog"
+          entityId={formData.slug}
           value={formData.image}
           onChange={(url) => setFormData({ ...formData, image: url })}
           helperText="Imagen principal de cabecera del artículo."
