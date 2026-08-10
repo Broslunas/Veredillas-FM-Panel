@@ -91,6 +91,11 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
   const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
 
+  // Gemini AI Quiz Generation States (from transcript + chapters)
+  const [quizAiLoading, setQuizAiLoading] = useState(false);
+  const [quizAiStatus, setQuizAiStatus] = useState<string | null>(null);
+  const [quizAiError, setQuizAiError] = useState<string | null>(null);
+
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
     slug: initialData?.slug || '',
@@ -169,6 +174,44 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
       setAiStatus(null);
     } finally {
       setAiLoading(false);
+    }
+  };
+
+  const handleGenerateQuizWithAI = async () => {
+    const hasTranscript = formData.transcription.some((t: any) => t.text && t.text.trim());
+    if (!hasTranscript) {
+      setQuizAiError('Añade primero la transcripción del episodio (pestaña 3) para poder generar el quiz con IA.');
+      return;
+    }
+
+    setQuizAiError(null);
+    setQuizAiStatus('Analizando la transcripción y los capítulos con Gemini AI...');
+    setQuizAiLoading(true);
+
+    try {
+      const res = await fetch('/api/admin/gemini/generate-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: formData.title,
+          transcription: formData.transcription,
+          sections: formData.sections,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al generar el quiz con IA');
+
+      setFormData((prev) => ({
+        ...prev,
+        quiz: Array.isArray(data.quiz) && data.quiz.length ? data.quiz : prev.quiz,
+      }));
+      setQuizAiStatus('¡Quiz generado a partir de la transcripción! Revisa las preguntas antes de guardar.');
+    } catch (err: any) {
+      setQuizAiError(err.message || 'Error al generar el quiz con IA');
+      setQuizAiStatus(null);
+    } finally {
+      setQuizAiLoading(false);
     }
   };
 
@@ -362,6 +405,47 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
       ...prev,
       clips: [...prev.clips, clip],
     }));
+  };
+
+  // Quiz helpers
+  const addQuizQuestion = () => {
+    setFormData((prev) => ({
+      ...prev,
+      quiz: [...prev.quiz, { question: '', options: ['', '', '', ''], correctAnswer: 0 }],
+    }));
+  };
+
+  const removeQuizQuestion = (idx: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      quiz: prev.quiz.filter((_: any, i: number) => i !== idx),
+    }));
+  };
+
+  const updateQuizQuestion = (idx: number, val: string) => {
+    setFormData((prev) => {
+      const copy = [...prev.quiz];
+      copy[idx] = { ...copy[idx], question: val };
+      return { ...prev, quiz: copy };
+    });
+  };
+
+  const updateQuizOption = (idx: number, optionIdx: number, val: string) => {
+    setFormData((prev) => {
+      const copy = [...prev.quiz];
+      const options = [...copy[idx].options];
+      options[optionIdx] = val;
+      copy[idx] = { ...copy[idx], options };
+      return { ...prev, quiz: copy };
+    });
+  };
+
+  const updateQuizCorrectAnswer = (idx: number, optionIdx: number) => {
+    setFormData((prev) => {
+      const copy = [...prev.quiz];
+      copy[idx] = { ...copy[idx], correctAnswer: optionIdx };
+      return { ...prev, quiz: copy };
+    });
   };
 
   return (
@@ -1184,6 +1268,129 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
                 </button>
               </div>
             ))}
+          </div>
+
+          {/* Quiz AI Generation */}
+          <div className="pt-6 border-t border-zinc-800/80 space-y-4">
+            <div className="bg-gradient-to-r from-indigo-950/60 via-zinc-900 to-purple-950/60 border border-indigo-800/60 rounded-2xl p-5 space-y-4 shadow-xl">
+              <div className="flex items-center gap-2.5 border-b border-indigo-900/40 pb-3">
+                <div className="w-8 h-8 rounded-xl bg-indigo-600/30 border border-indigo-500/50 flex items-center justify-center text-indigo-300">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+                    <span>Generar Quiz con IA</span>
+                    <span className="text-[10px] font-mono font-bold bg-indigo-950 border border-indigo-800 text-indigo-300 px-2 py-0.5 rounded">
+                      Gemini
+                    </span>
+                  </h4>
+                  <p className="text-xs text-zinc-400">
+                    Gemini analiza la transcripción y los capítulos ya cargados en este episodio y genera 5 preguntas tipo test.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleGenerateQuizWithAI}
+                disabled={quizAiLoading}
+                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs shadow-md shadow-indigo-600/20"
+              >
+                {quizAiLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>Generando quiz...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 text-indigo-300" />
+                    <span>Generar Quiz desde la Transcripción</span>
+                  </>
+                )}
+              </button>
+
+              {quizAiStatus && !quizAiError && (
+                <div className="p-2.5 rounded-xl bg-indigo-950/60 border border-indigo-800/80 text-xs font-mono text-indigo-300 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{quizAiStatus}</span>
+                </div>
+              )}
+
+              {quizAiError && (
+                <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-800/80 text-xs font-mono text-rose-300 flex items-center gap-2">
+                  <span className="text-rose-400 font-bold">⚠️ Error:</span>
+                  <span>{quizAiError}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Quiz */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-200 flex items-center gap-2">
+                    <HelpCircle className="w-4 h-4 text-indigo-400" />
+                    <span>Quiz del Episodio</span>
+                  </h3>
+                  <p className="text-xs text-zinc-400">Preguntas tipo test que verán los oyentes en la web</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={addQuizQuestion}
+                  className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium px-3 py-1.5 rounded-lg transition flex items-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4 text-indigo-400" />
+                  <span>Añadir Pregunta</span>
+                </button>
+              </div>
+
+              {formData.quiz.map((q: any, idx: number) => (
+                <div key={idx} className="bg-zinc-950 p-3 border border-zinc-800/80 rounded-lg space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-zinc-500 shrink-0">#{idx + 1}</span>
+                    <input
+                      type="text"
+                      value={q.question}
+                      onChange={(e) => updateQuizQuestion(idx, e.target.value)}
+                      placeholder="Escribe la pregunta..."
+                      className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-3 py-1.5 text-xs text-zinc-100 focus:outline-none focus:border-zinc-600"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeQuizQuestion(idx)}
+                      className="p-1 text-zinc-500 hover:text-red-400 transition"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-6">
+                    {q.options.map((opt: string, optionIdx: number) => (
+                      <label
+                        key={optionIdx}
+                        className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5"
+                      >
+                        <input
+                          type="radio"
+                          name={`quiz-correct-${idx}`}
+                          checked={q.correctAnswer === optionIdx}
+                          onChange={() => updateQuizCorrectAnswer(idx, optionIdx)}
+                          className="shrink-0 text-indigo-600 focus:ring-0"
+                          title="Marcar como respuesta correcta"
+                        />
+                        <input
+                          type="text"
+                          value={opt}
+                          onChange={(e) => updateQuizOption(idx, optionIdx, e.target.value)}
+                          placeholder={`Opción ${optionIdx + 1}`}
+                          className="flex-1 bg-transparent text-xs text-zinc-100 focus:outline-none min-w-0"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

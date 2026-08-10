@@ -219,3 +219,81 @@ Responde únicamente con el JSON solicitado, en español.`;
       : [],
   };
 }
+
+export interface GenerateQuizInput {
+  title?: string;
+  transcription: { time: string; text: string; speaker?: string }[];
+  sections?: { title: string; time: string }[];
+}
+
+export interface GeneratedQuizContent {
+  quiz: { question: string; options: string[]; correctAnswer: number }[];
+}
+
+const QUIZ_SCHEMA = {
+  type: 'object',
+  properties: {
+    quiz: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          question: { type: 'string' },
+          options: { type: 'array', items: { type: 'string' } },
+          correctAnswer: { type: 'integer' },
+        },
+        required: ['question', 'options', 'correctAnswer'],
+      },
+    },
+  },
+  required: ['quiz'],
+};
+
+// Keeps the prompt within a safe token budget for very long episodes.
+const MAX_TRANSCRIPT_CHARS = 24000;
+
+export async function generateQuizFromTranscript(input: GenerateQuizInput): Promise<GeneratedQuizContent> {
+  const transcriptText = input.transcription
+    .filter((t) => t && t.text && t.text.trim())
+    .map((t) => `[${t.time}]${t.speaker ? ` ${t.speaker}:` : ''} ${t.text.trim()}`)
+    .join('\n')
+    .slice(0, MAX_TRANSCRIPT_CHARS);
+
+  if (!transcriptText) {
+    throw new Error('El episodio no tiene transcripción para analizar.');
+  }
+
+  const chaptersText =
+    Array.isArray(input.sections) && input.sections.length
+      ? input.sections.map((s) => `[${s.time}] ${s.title}`).join('\n')
+      : 'No hay capítulos definidos.';
+
+  const prompt = `Eres el editor de contenido de Veredillas FM, una radio online en español dirigida a un público joven.
+Analiza la transcripción con marcas de tiempo y los capítulos de este episodio${input.title ? ` titulado "${input.title}"` : ''} para proponer un quiz.
+
+Capítulos:
+${chaptersText}
+
+Transcripción (con marcas de tiempo [mm:ss]):
+${transcriptText}
+
+Devuelve estrictamente este campo:
+- quiz: 5 preguntas tipo test sobre el contenido real de la transcripción, cada una con 4 opciones y el índice (0-3, empezando en 0) de la respuesta correcta.
+
+Basa las preguntas únicamente en el contenido real de la transcripción y los capítulos proporcionados, no inventes información. Responde únicamente con el JSON solicitado, en español.`;
+
+  const text = await callGemini(prompt, { responseSchema: QUIZ_SCHEMA, temperature: 0.7 });
+  const parsed = JSON.parse(text);
+
+  return {
+    quiz: Array.isArray(parsed.quiz)
+      ? parsed.quiz
+          .filter((q: any) => q && q.question)
+          .map((q: any) => ({
+            question: q.question,
+            options: Array.isArray(q.options) && q.options.length === 4 ? q.options : ['', '', '', ''],
+            correctAnswer: typeof q.correctAnswer === 'number' ? q.correctAnswer : 0,
+          }))
+      : [],
+  };
+}
