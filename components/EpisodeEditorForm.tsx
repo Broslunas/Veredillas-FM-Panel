@@ -5,6 +5,7 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import R2Uploader from '@/components/R2Uploader';
 import ClipYouTubeBatchUploader from '@/components/ClipYouTubeBatchUploader';
 import { uploadFileToR2ViaPresignedUrl } from '@/lib/r2-client';
+import { Mp3Encoder } from '@breezystack/lamejs';
 import {
   Save,
   ArrowLeft,
@@ -115,58 +116,40 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
     return uploadFileToR2ViaPresignedUrl(file, { folder, target, entityId });
   };
 
-  const audioBufferToWav = (buffer: AudioBuffer): Blob => {
-    const numChannels = buffer.numberOfChannels;
-    const sampleRate = buffer.sampleRate;
-    const format = 1;
-    const bitDepth = 16;
-    const bytesPerSample = bitDepth / 8;
-    const blockAlign = numChannels * bytesPerSample;
-    const dataLength = buffer.length * blockAlign;
-    const bufferLength = 44 + dataLength;
-    const arrayBuffer = new ArrayBuffer(bufferLength);
-    const view = new DataView(arrayBuffer);
-
-    const writeString = (offset: number, str: string) => {
-      for (let i = 0; i < str.length; i += 1) {
-        view.setUint8(offset + i, str.charCodeAt(i));
-      }
-    };
-
-    let offset = 0;
-    writeString(offset, 'RIFF'); offset += 4;
-    view.setUint32(offset, 36 + dataLength, true); offset += 4;
-    writeString(offset, 'WAVE'); offset += 4;
-    writeString(offset, 'fmt '); offset += 4;
-    view.setUint32(offset, 16, true); offset += 4;
-    view.setUint16(offset, format, true); offset += 2;
-    view.setUint16(offset, numChannels, true); offset += 2;
-    view.setUint32(offset, sampleRate, true); offset += 4;
-    view.setUint32(offset, sampleRate * blockAlign, true); offset += 4;
-    view.setUint16(offset, blockAlign, true); offset += 2;
-    view.setUint16(offset, bitDepth, true); offset += 2;
-    writeString(offset, 'data'); offset += 4;
-    view.setUint32(offset, dataLength, true); offset += 4;
-
-    const interleaved = new Float32Array(buffer.length * numChannels);
-    for (let channel = 0; channel < numChannels; channel += 1) {
-      const channelData = buffer.getChannelData(channel);
-      for (let i = 0; i < channelData.length; i += 1) {
-        interleaved[i * numChannels + channel] = channelData[i];
-      }
+  const floatTo16BitPCM = (input: Float32Array): Int16Array => {
+    const output = new Int16Array(input.length);
+    for (let i = 0; i < input.length; i += 1) {
+      const sample = Math.max(-1, Math.min(1, input[i]));
+      output[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
     }
-
-    let pos = 44;
-    for (let i = 0; i < interleaved.length; i += 1) {
-      const sample = Math.max(-1, Math.min(1, interleaved[i]));
-      view.setInt16(pos, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-      pos += 2;
-    }
-
-    return new Blob([view], { type: 'audio/wav' });
+    return output;
   };
 
-  const decodeArrayBufferToWav = async (arrayBuffer: ArrayBuffer): Promise<Blob> => {
+  const audioBufferToMp3 = (buffer: AudioBuffer, kbps = 128): Blob => {
+    const channels = Math.min(buffer.numberOfChannels, 2);
+    const encoder = new Mp3Encoder(channels, buffer.sampleRate, kbps);
+
+    const left = floatTo16BitPCM(buffer.getChannelData(0));
+    const right = channels === 2 ? floatTo16BitPCM(buffer.getChannelData(1)) : undefined;
+
+    const sampleBlockSize = 1152; // multiple of 576, expected by the encoder
+    const chunks: Uint8Array[] = [];
+
+    for (let i = 0; i < left.length; i += sampleBlockSize) {
+      const leftChunk = left.subarray(i, i + sampleBlockSize);
+      const mp3buf = right
+        ? encoder.encodeBuffer(leftChunk, right.subarray(i, i + sampleBlockSize))
+        : encoder.encodeBuffer(leftChunk);
+      if (mp3buf.length > 0) chunks.push(mp3buf);
+    }
+
+    const finalChunk = encoder.flush();
+    if (finalChunk.length > 0) chunks.push(finalChunk);
+
+    return new Blob(chunks, { type: 'audio/mpeg' });
+  };
+
+  const decodeArrayBufferToMp3 = async (arrayBuffer: ArrayBuffer): Promise<Blob> => {
     const audioContext = new AudioContext();
     try {
       const decodedBuffer = await audioContext.decodeAudioData(arrayBuffer);
@@ -180,7 +163,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
       source.connect(offlineContext.destination);
       source.start(0);
       const renderedBuffer = await offlineContext.startRendering();
-      return audioBufferToWav(renderedBuffer);
+      return audioBufferToMp3(renderedBuffer);
     } finally {
       await audioContext.close();
     }
@@ -210,11 +193,11 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
       const arrayBuffer = await res.arrayBuffer();
 
       setExtractAudioFromR2Status('Extrayendo audio del vídeo...');
-      const audioBlob = await decodeArrayBufferToWav(arrayBuffer);
+      const audioBlob = await decodeArrayBufferToMp3(arrayBuffer);
 
       setExtractAudioFromR2Status('Subiendo audio extraído al bucket CDN...');
       const baseName = formData.slug || 'episodio';
-      const audioFile = new File([audioBlob], `${baseName}.wav`, { type: 'audio/wav' });
+      const audioFile = new File([audioBlob], `${baseName}.mp3`, { type: 'audio/mpeg' });
       const audioUrl = await uploadR2File(audioFile, 'audios', 'audio', formData.slug);
 
       setFormData((prev) => ({ ...prev, audioUrl }));
@@ -661,8 +644,8 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
                 try {
                   const audioBlob = await extractAudioFromVideoFile(file);
                   setAudioExtractionStatus('Subiendo audio extraído al bucket CDN...');
-                  const audioFileName = file.name.replace(/\.[^/.]+$/, '') + '.wav';
-                  const audioFile = new File([audioBlob], audioFileName, { type: 'audio/wav' });
+                  const audioFileName = file.name.replace(/\.[^/.]+$/, '') + '.mp3';
+                  const audioFile = new File([audioBlob], audioFileName, { type: 'audio/mpeg' });
                   const audioUrl = await uploadR2File(audioFile, 'audios', 'audio', formData.slug);
                   setFormData((prev) => ({ ...prev, audioUrl }));
                   setAudioExtractionStatus('Audio extraído y subido correctamente.');
