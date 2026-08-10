@@ -182,13 +182,22 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
 
     setExtractAudioFromR2Error(null);
     setExtractingAudioFromR2(true);
-    setExtractAudioFromR2Status('Descargando vídeo desde R2...');
+    setExtractAudioFromR2Status('Solicitando acceso al vídeo en R2...');
 
     try {
-      const res = await fetch(`/api/admin/r2-download?url=${encodeURIComponent(formData.videoUrl)}`);
+      const presignRes = await fetch(`/api/admin/r2-presign-download?url=${encodeURIComponent(formData.videoUrl)}`);
+      if (!presignRes.ok) {
+        const data = await presignRes.json().catch(() => null);
+        throw new Error(data?.error || 'No se pudo generar la URL de descarga del vídeo');
+      }
+      const { presignedUrl } = await presignRes.json();
+
+      // Downloaded directly from R2 by the browser (not proxied through Vercel)
+      // to avoid burning serverless bandwidth on large video files.
+      setExtractAudioFromR2Status('Descargando vídeo desde R2...');
+      const res = await fetch(presignedUrl);
       if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error || 'No se pudo descargar el vídeo desde R2');
+        throw new Error('No se pudo descargar el vídeo desde R2');
       }
       const arrayBuffer = await res.arrayBuffer();
 
