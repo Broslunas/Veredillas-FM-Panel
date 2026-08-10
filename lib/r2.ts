@@ -87,12 +87,20 @@ export function serializeBucketForClient(bucket: IR2Bucket) {
   };
 }
 
+function getExtensionKey(key: string): string {
+  if (!key || key.endsWith('/')) return 'sin-extension';
+  const ext = extname(key).toLowerCase();
+  if (!ext || ext === '.') return 'sin-extension';
+  return ext.slice(1);
+}
+
 export async function getBucketUsage(bucketName: string) {
   const bucket = await resolveBucketByName(bucketName);
   const client = getS3ClientForBucket(bucket);
   let continuationToken: string | undefined;
   let totalBytes = 0;
   let totalObjects = 0;
+  const extensionMap = new Map<string, { bytes: number; objects: number }>();
 
   do {
     const listCommand = new ListObjectsV2Command({
@@ -107,13 +115,24 @@ export async function getBucketUsage(bucketName: string) {
     for (const item of contents) {
       if (item.Key) {
         totalObjects += 1;
-        totalBytes += item.Size || 0;
+        const size = item.Size || 0;
+        totalBytes += size;
+
+        const extKey = getExtensionKey(item.Key);
+        const entry = extensionMap.get(extKey) || { bytes: 0, objects: 0 };
+        entry.bytes += size;
+        entry.objects += 1;
+        extensionMap.set(extKey, entry);
       }
     }
     continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
   } while (continuationToken);
 
-  return { totalBytes, totalObjects };
+  const byExtension = Array.from(extensionMap.entries())
+    .map(([extension, stats]) => ({ extension, bytes: stats.bytes, objects: stats.objects }))
+    .sort((a, b) => b.bytes - a.bytes);
+
+  return { totalBytes, totalObjects, byExtension };
 }
 
 async function objectExists(client: S3Client, bucketName: string, key: string): Promise<boolean> {

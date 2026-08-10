@@ -19,8 +19,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   }
 
   try {
-    const { totalBytes, totalObjects } = await getBucketUsage(bucket.bucketName);
-    return NextResponse.json({ totalBytes, totalObjects, maxBytes: bucket.maxBytes });
+    const { totalBytes, totalObjects, byExtension } = await getBucketUsage(bucket.bucketName);
+    return NextResponse.json({ totalBytes, totalObjects, maxBytes: bucket.maxBytes, byExtension });
   } catch (error: any) {
     console.error('Error reading bucket usage:', error);
     return NextResponse.json({ error: error.message || 'Error al leer el uso del bucket' }, { status: 500 });

@@ -10,11 +10,14 @@ import {
   Star,
   Image as ImageIcon,
   Music,
+  Video,
   Loader2,
   X,
   Save,
   ShieldAlert,
   Link2,
+  PieChart,
+  FileType,
 } from 'lucide-react';
 import BucketFileBrowser from '@/components/BucketFileBrowser';
 
@@ -40,10 +43,17 @@ interface BucketItem {
   updatedAt: string;
 }
 
+interface ExtensionStat {
+  extension: string;
+  bytes: number;
+  objects: number;
+}
+
 interface UsageInfo {
   totalBytes: number;
   totalObjects: number;
   maxBytes: number;
+  byExtension: ExtensionStat[];
 }
 
 interface BucketFormState {
@@ -82,6 +92,27 @@ function formatSize(bytes: number) {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }
 
+const EXTENSION_STATS_LIMIT = 8;
+
+function formatExtensionLabel(extension: string) {
+  if (extension === 'sin-extension') return 'Sin extensión';
+  if (extension === 'otros') return 'Otros';
+  return `.${extension}`;
+}
+
+function iconForExtension(extension: string) {
+  if (/^(png|jpe?g|webp|gif|svg|avif)$/i.test(extension)) {
+    return <ImageIcon className="w-3.5 h-3.5 text-indigo-400" />;
+  }
+  if (/^(mp3|wav|m4a|ogg|flac|aac)$/i.test(extension)) {
+    return <Music className="w-3.5 h-3.5 text-indigo-400" />;
+  }
+  if (/^(mp4|webm|mov|mkv|avi)$/i.test(extension)) {
+    return <Video className="w-3.5 h-3.5 text-indigo-400" />;
+  }
+  return <FileType className="w-3.5 h-3.5 text-zinc-500" />;
+}
+
 export default function BucketsAdminPage() {
   const router = useRouter();
   const [authChecked, setAuthChecked] = useState(false);
@@ -99,6 +130,7 @@ export default function BucketsAdminPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [connectedBucket, setConnectedBucket] = useState<BucketItem | null>(null);
+  const [statsScope, setStatsScope] = useState<string>('all');
 
   useEffect(() => {
     async function checkAuth() {
@@ -169,6 +201,40 @@ export default function BucketsAdminPage() {
       multimedia: buckets.filter((b) => b.type === 'multimedia'),
     };
   }, [buckets]);
+
+  const extensionBreakdown = useMemo(() => {
+    const relevantUsage: UsageInfo[] =
+      statsScope === 'all'
+        ? Object.values(usage)
+        : usage[statsScope]
+        ? [usage[statsScope]]
+        : [];
+
+    const merged = new Map<string, { bytes: number; objects: number }>();
+    for (const u of relevantUsage) {
+      for (const stat of u.byExtension || []) {
+        const entry = merged.get(stat.extension) || { bytes: 0, objects: 0 };
+        entry.bytes += stat.bytes;
+        entry.objects += stat.objects;
+        merged.set(stat.extension, entry);
+      }
+    }
+
+    const all = Array.from(merged.entries())
+      .map(([extension, v]) => ({ extension, bytes: v.bytes, objects: v.objects }))
+      .sort((a, b) => b.bytes - a.bytes);
+
+    const totalBytes = all.reduce((sum, e) => sum + e.bytes, 0);
+    const top = all.slice(0, EXTENSION_STATS_LIMIT);
+    const rest = all.slice(EXTENSION_STATS_LIMIT);
+    const othersBytes = rest.reduce((sum, e) => sum + e.bytes, 0);
+    const othersObjects = rest.reduce((sum, e) => sum + e.objects, 0);
+
+    const rows =
+      othersBytes > 0 ? [...top, { extension: 'otros', bytes: othersBytes, objects: othersObjects }] : top;
+
+    return { rows, totalBytes, loadedCount: relevantUsage.length };
+  }, [usage, statsScope]);
 
   const openCreateModal = () => {
     setEditingBucket(null);
@@ -423,6 +489,64 @@ export default function BucketsAdminPage() {
               <p className="text-sm text-zinc-500">No hay buckets de este tipo todavía.</p>
             ) : (
               <div className="grid gap-4 md:grid-cols-2">{grouped.multimedia.map(renderBucketCard)}</div>
+            )}
+          </section>
+
+          <section className="space-y-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-200">
+                <PieChart className="w-4 h-4 text-indigo-400" /> Uso de almacenamiento por tipo de archivo
+              </h2>
+              <select
+                value={statsScope}
+                onChange={(e) => setStatsScope(e.target.value)}
+                className="bg-zinc-950 border border-zinc-800 text-zinc-300 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
+              >
+                <option value="all">Todos los buckets</option>
+                {buckets.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {buckets.length === 0 ? (
+              <p className="text-sm text-zinc-500">No hay buckets configurados todavía.</p>
+            ) : statsScope !== 'all' && !usage[statsScope] ? (
+              <p className="text-sm text-zinc-500">No se pudo cargar el uso de este bucket.</p>
+            ) : extensionBreakdown.rows.length === 0 ? (
+              <p className="text-sm text-zinc-500">Este bucket no tiene archivos todavía.</p>
+            ) : (
+              <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 space-y-3">
+                {statsScope === 'all' && extensionBreakdown.loadedCount < buckets.length && (
+                  <p className="text-[11px] text-amber-400/80">
+                    Algunos buckets no pudieron cargar sus estadísticas; los totales pueden estar incompletos.
+                  </p>
+                )}
+                {extensionBreakdown.rows.map((row) => {
+                  const pct =
+                    extensionBreakdown.totalBytes > 0
+                      ? Math.round((row.bytes / extensionBreakdown.totalBytes) * 100)
+                      : 0;
+                  return (
+                    <div key={row.extension} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1.5 text-zinc-200">
+                          {iconForExtension(row.extension)}
+                          {formatExtensionLabel(row.extension)}
+                        </span>
+                        <span className="text-zinc-400">
+                          {formatSize(row.bytes)} · {row.objects} archivo(s) · {pct}%
+                        </span>
+                      </div>
+                      <div className="h-2 rounded-full bg-zinc-900 overflow-hidden">
+                        <div className="h-full rounded-full bg-indigo-500" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </section>
         </>
