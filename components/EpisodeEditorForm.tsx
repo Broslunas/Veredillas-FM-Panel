@@ -146,7 +146,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
     const finalChunk = encoder.flush();
     if (finalChunk.length > 0) chunks.push(finalChunk);
 
-    return new Blob(chunks, { type: 'audio/mpeg' });
+    return new Blob(chunks as BlobPart[], { type: 'audio/mpeg' });
   };
 
   const decodeArrayBufferToMp3 = async (arrayBuffer: ArrayBuffer): Promise<Blob> => {
@@ -171,7 +171,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
 
   const extractAudioFromVideoFile = async (file: File): Promise<Blob> => {
     const arrayBuffer = await file.arrayBuffer();
-    return decodeArrayBufferToWav(arrayBuffer);
+    return decodeArrayBufferToMp3(arrayBuffer);
   };
 
   const handleExtractAudioFromUploadedVideo = async () => {
