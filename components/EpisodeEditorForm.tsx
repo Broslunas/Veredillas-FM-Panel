@@ -5,7 +5,6 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import R2Uploader from '@/components/R2Uploader';
 import ClipYouTubeBatchUploader from '@/components/ClipYouTubeBatchUploader';
 import { uploadFileToR2ViaPresignedUrl } from '@/lib/r2-client';
-import { Mp3Encoder } from '@breezystack/lamejs';
 import {
   Save,
   ArrowLeft,
@@ -116,37 +115,36 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
     return uploadFileToR2ViaPresignedUrl(file, { folder, target, entityId });
   };
 
-  const floatTo16BitPCM = (input: Float32Array): Int16Array => {
-    const output = new Int16Array(input.length);
-    for (let i = 0; i < input.length; i += 1) {
-      const sample = Math.max(-1, Math.min(1, input[i]));
-      output[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
-    }
-    return output;
-  };
+  // Runs the actual MP3 encoding (CPU-heavy, pure JS) off the main thread so
+  // the tab doesn't freeze/"page unresponsive" while processing a long episode.
+  const encodeAudioBufferToMp3 = (buffer: AudioBuffer, kbps = 128): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const worker = new Worker(new URL('../lib/workers/mp3-encoder.worker.js', import.meta.url), {
+        type: 'module',
+      });
 
-  const audioBufferToMp3 = (buffer: AudioBuffer, kbps = 128): Blob => {
-    const channels = Math.min(buffer.numberOfChannels, 2);
-    const encoder = new Mp3Encoder(channels, buffer.sampleRate, kbps);
+      worker.onmessage = (event: MessageEvent<{ chunks?: Uint8Array[]; error?: string }>) => {
+        worker.terminate();
+        if (event.data.error) {
+          reject(new Error(event.data.error));
+          return;
+        }
+        resolve(new Blob((event.data.chunks || []) as BlobPart[], { type: 'audio/mpeg' }));
+      };
 
-    const left = floatTo16BitPCM(buffer.getChannelData(0));
-    const right = channels === 2 ? floatTo16BitPCM(buffer.getChannelData(1)) : undefined;
+      worker.onerror = (event) => {
+        worker.terminate();
+        reject(new Error(event.message || 'Error en el worker de codificación MP3'));
+      };
 
-    const sampleBlockSize = 1152; // multiple of 576, expected by the encoder
-    const chunks: Uint8Array[] = [];
+      // Copy the channel data so its buffer can be transferred (zero-copy)
+      // to the worker instead of structured-cloned.
+      const left = buffer.getChannelData(0).slice();
+      const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1).slice() : null;
+      const transfer = right ? [left.buffer, right.buffer] : [left.buffer];
 
-    for (let i = 0; i < left.length; i += sampleBlockSize) {
-      const leftChunk = left.subarray(i, i + sampleBlockSize);
-      const mp3buf = right
-        ? encoder.encodeBuffer(leftChunk, right.subarray(i, i + sampleBlockSize))
-        : encoder.encodeBuffer(leftChunk);
-      if (mp3buf.length > 0) chunks.push(mp3buf);
-    }
-
-    const finalChunk = encoder.flush();
-    if (finalChunk.length > 0) chunks.push(finalChunk);
-
-    return new Blob(chunks as BlobPart[], { type: 'audio/mpeg' });
+      worker.postMessage({ left, right, sampleRate: buffer.sampleRate, kbps }, transfer);
+    });
   };
 
   const decodeArrayBufferToMp3 = async (arrayBuffer: ArrayBuffer): Promise<Blob> => {
@@ -163,7 +161,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
       source.connect(offlineContext.destination);
       source.start(0);
       const renderedBuffer = await offlineContext.startRendering();
-      return audioBufferToMp3(renderedBuffer);
+      return encodeAudioBufferToMp3(renderedBuffer);
     } finally {
       await audioContext.close();
     }
