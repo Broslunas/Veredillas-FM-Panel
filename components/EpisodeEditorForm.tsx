@@ -18,6 +18,7 @@ import {
   Loader2,
   CheckCircle2,
   Sparkles,
+  Music,
 } from 'lucide-react';
 
 interface EpisodeEditorProps {
@@ -60,6 +61,11 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
   const [videoUploadStatus, setVideoUploadStatus] = useState<string>('');
   const [videoUploadError, setVideoUploadError] = useState<string | null>(null);
   const [audioExtractionStatus, setAudioExtractionStatus] = useState<string>('');
+
+  // Audio extraction from an already-uploaded R2 video
+  const [extractingAudioFromR2, setExtractingAudioFromR2] = useState(false);
+  const [extractAudioFromR2Status, setExtractAudioFromR2Status] = useState('');
+  const [extractAudioFromR2Error, setExtractAudioFromR2Error] = useState<string | null>(null);
 
   // Deepgram AI Transcription States
   const [deepgramLoading, setDeepgramLoading] = useState(false);
@@ -160,10 +166,9 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
     return new Blob([view], { type: 'audio/wav' });
   };
 
-  const extractAudioFromVideoFile = async (file: File): Promise<Blob> => {
+  const decodeArrayBufferToWav = async (arrayBuffer: ArrayBuffer): Promise<Blob> => {
     const audioContext = new AudioContext();
     try {
-      const arrayBuffer = await file.arrayBuffer();
       const decodedBuffer = await audioContext.decodeAudioData(arrayBuffer);
       const offlineContext = new OfflineAudioContext(
         decodedBuffer.numberOfChannels,
@@ -178,6 +183,48 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
       return audioBufferToWav(renderedBuffer);
     } finally {
       await audioContext.close();
+    }
+  };
+
+  const extractAudioFromVideoFile = async (file: File): Promise<Blob> => {
+    const arrayBuffer = await file.arrayBuffer();
+    return decodeArrayBufferToWav(arrayBuffer);
+  };
+
+  const handleExtractAudioFromUploadedVideo = async () => {
+    if (!formData.videoUrl) {
+      setExtractAudioFromR2Error('Primero sube un vídeo o añade su URL.');
+      return;
+    }
+
+    setExtractAudioFromR2Error(null);
+    setExtractingAudioFromR2(true);
+    setExtractAudioFromR2Status('Descargando vídeo desde R2...');
+
+    try {
+      const res = await fetch(`/api/admin/r2-download?url=${encodeURIComponent(formData.videoUrl)}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || 'No se pudo descargar el vídeo desde R2');
+      }
+      const arrayBuffer = await res.arrayBuffer();
+
+      setExtractAudioFromR2Status('Extrayendo audio del vídeo...');
+      const audioBlob = await decodeArrayBufferToWav(arrayBuffer);
+
+      setExtractAudioFromR2Status('Subiendo audio extraído al bucket CDN...');
+      const baseName = formData.slug || 'episodio';
+      const audioFile = new File([audioBlob], `${baseName}.wav`, { type: 'audio/wav' });
+      const audioUrl = await uploadR2File(audioFile, 'audios', 'audio', formData.slug);
+
+      setFormData((prev) => ({ ...prev, audioUrl }));
+      setExtractAudioFromR2Status('Audio extraído y subido correctamente.');
+    } catch (error: any) {
+      console.error(error);
+      setExtractAudioFromR2Error(error.message || 'Error al extraer el audio del vídeo.');
+      setExtractAudioFromR2Status('');
+    } finally {
+      setExtractingAudioFromR2(false);
     }
   };
 
@@ -631,6 +678,41 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
               }}
               helperText="Sube un archivo de vídeo y extrae automáticamente el audio para el episodio."
             />
+
+            {formData.videoUrl && (
+              <div className="p-4 bg-zinc-950/60 border border-zinc-800/80 rounded-xl space-y-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-xs font-semibold text-zinc-200">Extraer audio del vídeo ya subido</h4>
+                    <p className="text-xs text-zinc-500">
+                      {formData.audioUrl
+                        ? 'Ya existe un audio asignado. Puedes volver a extraerlo desde el vídeo ya subido a R2.'
+                        : 'Este vídeo ya está en R2 pero todavía no tiene audio generado. Extráelo sin volver a subir el archivo.'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleExtractAudioFromUploadedVideo}
+                    disabled={extractingAudioFromR2}
+                    className="shrink-0 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-100 text-xs font-medium px-4 py-2 rounded-lg transition flex items-center gap-2"
+                  >
+                    {extractingAudioFromR2 ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Music className="w-4 h-4 text-indigo-400" />
+                    )}
+                    <span>{extractingAudioFromR2 ? 'Extrayendo...' : 'Extraer audio del vídeo en R2'}</span>
+                  </button>
+                </div>
+
+                {extractAudioFromR2Status && !extractAudioFromR2Error && (
+                  <p className="text-xs font-mono text-emerald-400">{extractAudioFromR2Status}</p>
+                )}
+                {extractAudioFromR2Error && (
+                  <p className="text-xs font-mono text-red-400">{extractAudioFromR2Error}</p>
+                )}
+              </div>
+            )}
           </div>
 
           <R2Uploader
