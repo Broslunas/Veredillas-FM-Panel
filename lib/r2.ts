@@ -3,6 +3,7 @@ import { extname } from 'path';
 import {
   S3Client,
   PutObjectCommand,
+  GetObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
@@ -212,6 +213,33 @@ export async function resolveUploadDestination(
   }
 
   return { bucket, key };
+}
+
+export async function getR2ObjectByUrl(url: string): Promise<{
+  stream: ReadableStream;
+  contentType?: string;
+  contentLength?: number;
+}> {
+  await dbConnect();
+  const buckets = await R2Bucket.find({ isActive: true }).lean<IR2Bucket[]>();
+  const bucket = buckets.find((b) => url.startsWith(`${b.publicUrlBase.replace(/\/+$/, '')}/`));
+  if (!bucket) {
+    throw new Error('No se encontró ningún bucket que corresponda a esta URL');
+  }
+
+  const key = url.slice(bucket.publicUrlBase.replace(/\/+$/, '').length).replace(/^\/+/, '');
+  const client = getS3ClientForBucket(bucket);
+  const response = await client.send(new GetObjectCommand({ Bucket: bucket.bucketName, Key: key }));
+
+  if (!response.Body) {
+    throw new Error('El archivo solicitado no tiene contenido');
+  }
+
+  return {
+    stream: await response.Body.transformToWebStream(),
+    contentType: response.ContentType,
+    contentLength: response.ContentLength,
+  };
 }
 
 export async function uploadFileToR2(
