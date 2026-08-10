@@ -4,7 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import R2Uploader from '@/components/R2Uploader';
 import ClipYouTubeBatchUploader from '@/components/ClipYouTubeBatchUploader';
+import AudioExtractionProgress from '@/components/AudioExtractionProgress';
 import { uploadFileToR2ViaPresignedUrl } from '@/lib/r2-client';
+import { ExtractionProgress, extractMp3FromVideoFile, extractMp3FromVideoUrl } from '@/lib/audio-extraction';
 import {
   Save,
   ArrowLeft,
@@ -28,6 +30,14 @@ interface EpisodeEditorProps {
 
 type TabType = 'general' | 'media' | 'sections' | 'transcript' | 'clips_quiz';
 const VALID_TABS: TabType[] = ['general', 'media', 'sections', 'transcript', 'clips_quiz'];
+
+interface AudioExtractionUiState {
+  active: boolean;
+  source: 'upload' | 'existing' | null;
+  progress: ExtractionProgress | null;
+  error: string | null;
+  successMessage: string | null;
+}
 
 export default function EpisodeEditorForm({ initialData, isEdit = false }: EpisodeEditorProps) {
   const router = useRouter();
@@ -56,16 +66,16 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Media upload states
-  const [videoUploading, setVideoUploading] = useState(false);
-  const [videoUploadStatus, setVideoUploadStatus] = useState<string>('');
-  const [videoUploadError, setVideoUploadError] = useState<string | null>(null);
-  const [audioExtractionStatus, setAudioExtractionStatus] = useState<string>('');
-
-  // Audio extraction from an already-uploaded R2 video
-  const [extractingAudioFromR2, setExtractingAudioFromR2] = useState(false);
-  const [extractAudioFromR2Status, setExtractAudioFromR2Status] = useState('');
-  const [extractAudioFromR2Error, setExtractAudioFromR2Error] = useState<string | null>(null);
+  // Audio extraction pipeline state, shared by both the auto-extraction
+  // (right after a fresh video upload) and the manual "extract from an
+  // already-uploaded video" flow.
+  const [audioExtraction, setAudioExtraction] = useState<AudioExtractionUiState>({
+    active: false,
+    source: null,
+    progress: null,
+    error: null,
+    successMessage: null,
+  });
 
   // Deepgram AI Transcription States
   const [deepgramLoading, setDeepgramLoading] = useState(false);
@@ -73,6 +83,13 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
   const [deepgramError, setDeepgramError] = useState<string | null>(null);
   const [generatedSubtitles, setGeneratedSubtitles] = useState<{ srt: string; vtt: string } | null>(null);
   const [copiedSrt, setCopiedSrt] = useState(false);
+
+  // Gemini AI Content Generation States
+  const [aiTopic, setAiTopic] = useState('');
+  const [aiNotes, setAiNotes] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiStatus, setAiStatus] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
@@ -111,76 +128,88 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
     setFormData((prev) => ({ ...prev, ...updated }));
   };
 
-  const uploadR2File = async (file: File, folder: string, target: 'audio' | 'video', entityId?: string) => {
-    return uploadFileToR2ViaPresignedUrl(file, { folder, target, entityId });
-  };
+  const handleGenerateWithAI = async () => {
+    if (!aiTopic.trim()) {
+      setAiError('Escribe primero un tema para generar el episodio.');
+      return;
+    }
 
-  // Runs the actual MP3 encoding (CPU-heavy, pure JS) off the main thread so
-  // the tab doesn't freeze/"page unresponsive" while processing a long episode.
-  const encodeAudioBufferToMp3 = (buffer: AudioBuffer, kbps = 128): Promise<Blob> => {
-    return new Promise((resolve, reject) => {
-      const worker = new Worker(new URL('../lib/workers/mp3-encoder.worker.js', import.meta.url), {
-        type: 'module',
+    setAiError(null);
+    setAiStatus('Generando contenido del episodio con Gemini AI...');
+    setAiLoading(true);
+
+    try {
+      const res = await fetch('/api/admin/gemini/generate-episode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: aiTopic,
+          notes: aiNotes,
+          participants: formData.participants,
+          tags: formData.tags,
+        }),
       });
 
-      worker.onmessage = (event: MessageEvent<{ chunks?: Uint8Array[]; error?: string }>) => {
-        worker.terminate();
-        if (event.data.error) {
-          reject(new Error(event.data.error));
-          return;
-        }
-        resolve(new Blob((event.data.chunks || []) as BlobPart[], { type: 'audio/mpeg' }));
-      };
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al generar el episodio con IA');
 
-      worker.onerror = (event) => {
-        worker.terminate();
-        reject(new Error(event.message || 'Error en el worker de codificación MP3'));
-      };
-
-      // Copy the channel data so its buffer can be transferred (zero-copy)
-      // to the worker instead of structured-cloned.
-      const left = buffer.getChannelData(0).slice();
-      const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1).slice() : null;
-      const transfer = right ? [left.buffer, right.buffer] : [left.buffer];
-
-      worker.postMessage({ left, right, sampleRate: buffer.sampleRate, kbps }, transfer);
-    });
-  };
-
-  const decodeArrayBufferToMp3 = async (arrayBuffer: ArrayBuffer): Promise<Blob> => {
-    const audioContext = new AudioContext();
-    try {
-      const decodedBuffer = await audioContext.decodeAudioData(arrayBuffer);
-      const offlineContext = new OfflineAudioContext(
-        decodedBuffer.numberOfChannels,
-        decodedBuffer.length,
-        decodedBuffer.sampleRate
-      );
-      const source = offlineContext.createBufferSource();
-      source.buffer = decodedBuffer;
-      source.connect(offlineContext.destination);
-      source.start(0);
-      const renderedBuffer = await offlineContext.startRendering();
-      return encodeAudioBufferToMp3(renderedBuffer);
+      setFormData((prev) => ({
+        ...prev,
+        title: data.title || prev.title,
+        slug: prev.slug || data.slug || prev.slug,
+        description: data.description || prev.description,
+        tags: Array.isArray(data.tags) && data.tags.length ? data.tags.join(', ') : prev.tags,
+        body: data.body || prev.body,
+        sections: Array.isArray(data.sections) && data.sections.length ? data.sections : prev.sections,
+        quiz: Array.isArray(data.quiz) && data.quiz.length ? data.quiz : prev.quiz,
+      }));
+      setAiStatus('¡Contenido generado! Revisa el título, las notas, los capítulos y el quiz antes de guardar.');
+    } catch (err: any) {
+      setAiError(err.message || 'Error al generar el episodio con IA');
+      setAiStatus(null);
     } finally {
-      await audioContext.close();
+      setAiLoading(false);
     }
   };
 
-  const extractAudioFromVideoFile = async (file: File): Promise<Blob> => {
-    const arrayBuffer = await file.arrayBuffer();
-    return decodeArrayBufferToMp3(arrayBuffer);
+  const uploadR2File = async (
+    file: File,
+    folder: string,
+    target: 'audio' | 'video',
+    entityId?: string,
+    onProgress?: (percent: number) => void
+  ) => {
+    return uploadFileToR2ViaPresignedUrl(file, { folder, target, entityId, onProgress });
+  };
+
+  const uploadExtractedAudio = async (
+    audioBlob: Blob,
+    fileName: string,
+    onProgress: (progress: ExtractionProgress) => void
+  ): Promise<string> => {
+    const audioFile = new File([audioBlob], fileName, { type: 'audio/mpeg' });
+    const startTime = performance.now();
+    return uploadR2File(audioFile, 'audios', 'audio', formData.slug, (percent) => {
+      const elapsedSeconds = (performance.now() - startTime) / 1000;
+      const etaSeconds = percent > 0 ? (elapsedSeconds / percent) * (100 - percent) : null;
+      onProgress({
+        stage: 'uploading',
+        percent,
+        etaSeconds,
+        loadedBytes: Math.round((percent / 100) * audioFile.size),
+        totalBytes: audioFile.size,
+      });
+    });
   };
 
   const handleExtractAudioFromUploadedVideo = async () => {
     if (!formData.videoUrl) {
-      setExtractAudioFromR2Error('Primero sube un vídeo o añade su URL.');
+      setAudioExtraction({ active: false, source: null, progress: null, error: 'Primero sube un vídeo o añade su URL.', successMessage: null });
       return;
     }
 
-    setExtractAudioFromR2Error(null);
-    setExtractingAudioFromR2(true);
-    setExtractAudioFromR2Status('Solicitando acceso al vídeo en R2...');
+    setAudioExtraction({ active: true, source: 'existing', progress: null, error: null, successMessage: null });
+    const onProgress = (progress: ExtractionProgress) => setAudioExtraction((prev) => ({ ...prev, progress }));
 
     try {
       const presignRes = await fetch(`/api/admin/r2-presign-download?url=${encodeURIComponent(formData.videoUrl)}`);
@@ -192,29 +221,28 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
 
       // Downloaded directly from R2 by the browser (not proxied through Vercel)
       // to avoid burning serverless bandwidth on large video files.
-      setExtractAudioFromR2Status('Descargando vídeo desde R2...');
-      const res = await fetch(presignedUrl);
-      if (!res.ok) {
-        throw new Error('No se pudo descargar el vídeo desde R2');
-      }
-      const arrayBuffer = await res.arrayBuffer();
+      const audioBlob = await extractMp3FromVideoUrl(presignedUrl, onProgress);
 
-      setExtractAudioFromR2Status('Extrayendo audio del vídeo...');
-      const audioBlob = await decodeArrayBufferToMp3(arrayBuffer);
-
-      setExtractAudioFromR2Status('Subiendo audio extraído al bucket CDN...');
       const baseName = formData.slug || 'episodio';
-      const audioFile = new File([audioBlob], `${baseName}.mp3`, { type: 'audio/mpeg' });
-      const audioUrl = await uploadR2File(audioFile, 'audios', 'audio', formData.slug);
+      const audioUrl = await uploadExtractedAudio(audioBlob, `${baseName}.mp3`, onProgress);
 
       setFormData((prev) => ({ ...prev, audioUrl }));
-      setExtractAudioFromR2Status('Audio extraído y subido correctamente.');
+      setAudioExtraction({
+        active: false,
+        source: null,
+        progress: null,
+        error: null,
+        successMessage: 'Audio extraído y subido correctamente.',
+      });
     } catch (error: any) {
       console.error(error);
-      setExtractAudioFromR2Error(error.message || 'Error al extraer el audio del vídeo.');
-      setExtractAudioFromR2Status('');
-    } finally {
-      setExtractingAudioFromR2(false);
+      setAudioExtraction({
+        active: false,
+        source: null,
+        progress: null,
+        error: error.message || 'Error al extraer el audio del vídeo.',
+        successMessage: null,
+      });
     }
   };
 
@@ -451,7 +479,85 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
 
       {/* TAB 1: GENERAL */}
       {activeTab === 'general' && (
-        <div className="space-y-4 bg-zinc-900/40 p-6 rounded-xl border border-zinc-800/80">
+        <div className="space-y-6">
+          {/* Gemini AI Content Generation */}
+          <div className="bg-gradient-to-r from-indigo-950/60 via-zinc-900 to-purple-950/60 border border-indigo-800/60 rounded-2xl p-5 space-y-4 shadow-xl">
+            <div className="flex items-center gap-2.5 border-b border-indigo-900/40 pb-3">
+              <div className="w-8 h-8 rounded-xl bg-indigo-600/30 border border-indigo-500/50 flex items-center justify-center text-indigo-300">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+                  <span>Generar Episodio con IA</span>
+                  <span className="text-[10px] font-mono font-bold bg-indigo-950 border border-indigo-800 text-indigo-300 px-2 py-0.5 rounded">
+                    Gemini
+                  </span>
+                </h4>
+                <p className="text-xs text-zinc-400">
+                  Describe el tema y Gemini redactará título, descripción, etiquetas, notas de programa, capítulos y un quiz.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
+              <div className="md:col-span-5 space-y-1.5">
+                <label className="text-zinc-300 font-mono text-[11px] font-semibold">Tema del episodio *</label>
+                <input
+                  type="text"
+                  value={aiTopic}
+                  onChange={(e) => setAiTopic(e.target.value)}
+                  placeholder="Ej: Entrevista sobre salud mental en la adolescencia"
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="md:col-span-7 space-y-1.5">
+                <label className="text-zinc-300 font-mono text-[11px] font-semibold">Notas / contexto adicional (opcional)</label>
+                <input
+                  type="text"
+                  value={aiNotes}
+                  onChange={(e) => setAiNotes(e.target.value)}
+                  placeholder="Fragmentos de la transcripción, temas tratados, anécdotas..."
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGenerateWithAI}
+              disabled={aiLoading}
+              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs shadow-md shadow-indigo-600/20"
+            >
+              {aiLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Generando...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 text-indigo-300" />
+                  <span>Generar Contenido con IA</span>
+                </>
+              )}
+            </button>
+
+            {aiStatus && !aiError && (
+              <div className="p-2.5 rounded-xl bg-indigo-950/60 border border-indigo-800/80 text-xs font-mono text-indigo-300 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{aiStatus}</span>
+              </div>
+            )}
+
+            {aiError && (
+              <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-800/80 text-xs font-mono text-rose-300 flex items-center gap-2">
+                <span className="text-rose-400 font-bold">⚠️ Error:</span>
+                <span>{aiError}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4 bg-zinc-900/40 p-6 rounded-xl border border-zinc-800/80">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400 mb-1">
@@ -616,6 +722,20 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
               className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-zinc-500 transition"
             />
           </div>
+
+          <div className="pt-2 border-t border-zinc-800/80">
+            <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400 mb-1">
+              Notas del Programa / Show Notes (Soporta HTML)
+            </label>
+            <textarea
+              rows={10}
+              value={formData.body}
+              onChange={(e) => setFormData({ ...formData, body: e.target.value })}
+              placeholder="Notas ampliadas del episodio: contexto, temas tratados, enlaces mencionados..."
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-sm text-zinc-100 font-mono placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition"
+            />
+          </div>
+          </div>
         </div>
       )}
 
@@ -643,31 +763,53 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
               value={formData.videoUrl}
               onChange={(url) => setFormData((prev) => ({ ...prev, videoUrl: url }))}
               onUploadSuccess={async (file) => {
-                setVideoUploadError(null);
-                setVideoUploadStatus('Vídeo subido correctamente. Extrayendo audio...');
-                setAudioExtractionStatus('');
-                setVideoUploading(true);
+                setAudioExtraction({ active: true, source: 'upload', progress: null, error: null, successMessage: null });
+                const onProgress = (progress: ExtractionProgress) =>
+                  setAudioExtraction((prev) => ({ ...prev, progress }));
 
                 try {
-                  const audioBlob = await extractAudioFromVideoFile(file);
-                  setAudioExtractionStatus('Subiendo audio extraído al bucket CDN...');
+                  const audioBlob = await extractMp3FromVideoFile(file, onProgress);
                   const audioFileName = file.name.replace(/\.[^/.]+$/, '') + '.mp3';
-                  const audioFile = new File([audioBlob], audioFileName, { type: 'audio/mpeg' });
-                  const audioUrl = await uploadR2File(audioFile, 'audios', 'audio', formData.slug);
+                  const audioUrl = await uploadExtractedAudio(audioBlob, audioFileName, onProgress);
                   setFormData((prev) => ({ ...prev, audioUrl }));
-                  setAudioExtractionStatus('Audio extraído y subido correctamente.');
-                  setVideoUploadStatus('Carga de vídeo completada.');
+                  setAudioExtraction({
+                    active: false,
+                    source: null,
+                    progress: null,
+                    error: null,
+                    successMessage: 'Vídeo subido y audio extraído correctamente.',
+                  });
                 } catch (error: any) {
                   console.error(error);
-                  setVideoUploadError(error.message || 'Error al extraer el audio del vídeo.');
-                  setVideoUploadStatus('');
-                  setAudioExtractionStatus('');
-                } finally {
-                  setVideoUploading(false);
+                  setAudioExtraction({
+                    active: false,
+                    source: null,
+                    progress: null,
+                    error: error.message || 'Error al extraer el audio del vídeo.',
+                    successMessage: null,
+                  });
                 }
               }}
               helperText="Sube un archivo de vídeo y extrae automáticamente el audio para el episodio."
             />
+
+            {audioExtraction.active && (
+              <AudioExtractionProgress
+                progress={audioExtraction.progress}
+                includeDownloadStage={audioExtraction.source === 'existing'}
+              />
+            )}
+            {!audioExtraction.active && audioExtraction.successMessage && (
+              <div className="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-900/60 text-xs font-mono text-emerald-300 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{audioExtraction.successMessage}</span>
+              </div>
+            )}
+            {!audioExtraction.active && audioExtraction.error && (
+              <div className="p-2.5 rounded-lg bg-red-950/40 border border-red-900/60 text-xs font-mono text-red-300">
+                {audioExtraction.error}
+              </div>
+            )}
 
             {formData.videoUrl && (
               <div className="p-4 bg-zinc-950/60 border border-zinc-800/80 rounded-xl space-y-2">
@@ -683,24 +825,17 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
                   <button
                     type="button"
                     onClick={handleExtractAudioFromUploadedVideo}
-                    disabled={extractingAudioFromR2}
+                    disabled={audioExtraction.active}
                     className="shrink-0 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-100 text-xs font-medium px-4 py-2 rounded-lg transition flex items-center gap-2"
                   >
-                    {extractingAudioFromR2 ? (
+                    {audioExtraction.active && audioExtraction.source === 'existing' ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
                       <Music className="w-4 h-4 text-indigo-400" />
                     )}
-                    <span>{extractingAudioFromR2 ? 'Extrayendo...' : 'Extraer audio del vídeo en R2'}</span>
+                    <span>{audioExtraction.active ? 'Extrayendo...' : 'Extraer audio del vídeo en R2'}</span>
                   </button>
                 </div>
-
-                {extractAudioFromR2Status && !extractAudioFromR2Error && (
-                  <p className="text-xs font-mono text-emerald-400">{extractAudioFromR2Status}</p>
-                )}
-                {extractAudioFromR2Error && (
-                  <p className="text-xs font-mono text-red-400">{extractAudioFromR2Error}</p>
-                )}
               </div>
             )}
           </div>

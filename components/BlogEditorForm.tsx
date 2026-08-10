@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import R2Uploader from '@/components/R2Uploader';
-import { Save, ArrowLeft, Loader2, CheckCircle2, Eye, Edit3 } from 'lucide-react';
+import { Save, ArrowLeft, Loader2, CheckCircle2, Eye, Edit3, Sparkles } from 'lucide-react';
 
 interface BlogEditorProps {
   initialData?: any;
@@ -16,6 +16,13 @@ export default function BlogEditorForm({ initialData, isEdit = false }: BlogEdit
   const [previewMode, setPreviewMode] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Gemini AI content generation
+  const [aiTopic, setAiTopic] = useState('');
+  const [aiNotes, setAiNotes] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiStatus, setAiStatus] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     title: initialData?.title || '',
@@ -40,6 +47,43 @@ export default function BlogEditorForm({ initialData, isEdit = false }: BlogEdit
         .replace(/^-|-$/g, '');
     }
     setFormData((prev) => ({ ...prev, ...updated }));
+  };
+
+  const handleGenerateWithAI = async () => {
+    if (!aiTopic.trim()) {
+      setAiError('Escribe primero un tema para generar el artículo.');
+      return;
+    }
+
+    setAiError(null);
+    setAiStatus('Generando artículo con Gemini AI...');
+    setAiLoading(true);
+
+    try {
+      const res = await fetch('/api/admin/gemini/generate-blog', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: aiTopic, notes: aiNotes, tags: formData.tags }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al generar el artículo con IA');
+
+      setFormData((prev) => ({
+        ...prev,
+        title: data.title || prev.title,
+        slug: prev.slug || data.slug || prev.slug,
+        description: data.description || prev.description,
+        tags: Array.isArray(data.tags) && data.tags.length ? data.tags.join(', ') : prev.tags,
+        body: data.body || prev.body,
+      }));
+      setAiStatus('¡Contenido generado! Revisa y ajusta el artículo antes de publicar.');
+    } catch (err: any) {
+      setAiError(err.message || 'Error al generar el artículo con IA');
+      setAiStatus(null);
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -121,6 +165,83 @@ export default function BlogEditorForm({ initialData, isEdit = false }: BlogEdit
           {errorMessage}
         </div>
       )}
+
+      {/* Gemini AI Content Generation */}
+      <div className="bg-gradient-to-r from-indigo-950/60 via-zinc-900 to-purple-950/60 border border-indigo-800/60 rounded-2xl p-5 space-y-4 shadow-xl">
+        <div className="flex items-center gap-2.5 border-b border-indigo-900/40 pb-3">
+          <div className="w-8 h-8 rounded-xl bg-indigo-600/30 border border-indigo-500/50 flex items-center justify-center text-indigo-300">
+            <Sparkles className="w-4 h-4" />
+          </div>
+          <div>
+            <h4 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+              <span>Generar Artículo con IA</span>
+              <span className="text-[10px] font-mono font-bold bg-indigo-950 border border-indigo-800 text-indigo-300 px-2 py-0.5 rounded">
+                Gemini
+              </span>
+            </h4>
+            <p className="text-xs text-zinc-400">
+              Describe el tema y Gemini redactará título, descripción, etiquetas y el cuerpo completo del artículo.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
+          <div className="md:col-span-5 space-y-1.5">
+            <label className="text-zinc-300 font-mono text-[11px] font-semibold">Tema del artículo *</label>
+            <input
+              type="text"
+              value={aiTopic}
+              onChange={(e) => setAiTopic(e.target.value)}
+              placeholder="Ej: Resumen de la gala de fin de curso"
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          <div className="md:col-span-7 space-y-1.5">
+            <label className="text-zinc-300 font-mono text-[11px] font-semibold">Notas / contexto adicional (opcional)</label>
+            <input
+              type="text"
+              value={aiNotes}
+              onChange={(e) => setAiNotes(e.target.value)}
+              placeholder="Detalles, nombres, enlaces o cualquier información a incluir..."
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleGenerateWithAI}
+          disabled={aiLoading}
+          className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs shadow-md shadow-indigo-600/20"
+        >
+          {aiLoading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin text-white" />
+              <span>Generando...</span>
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-4 h-4 text-indigo-300" />
+              <span>Generar Contenido con IA</span>
+            </>
+          )}
+        </button>
+
+        {aiStatus && !aiError && (
+          <div className="p-2.5 rounded-xl bg-indigo-950/60 border border-indigo-800/80 text-xs font-mono text-indigo-300 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{aiStatus}</span>
+          </div>
+        )}
+
+        {aiError && (
+          <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-800/80 text-xs font-mono text-rose-300 flex items-center gap-2">
+            <span className="text-rose-400 font-bold">⚠️ Error:</span>
+            <span>{aiError}</span>
+          </div>
+        )}
+      </div>
 
       {/* Form Fields */}
       <div className="space-y-4 bg-zinc-900/40 p-6 rounded-xl border border-zinc-800/80">
