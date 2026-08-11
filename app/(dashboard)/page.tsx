@@ -3,6 +3,9 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Radio, FileText, Users, HardDrive, Plus, ArrowUpRight, Loader2, Sparkles } from 'lucide-react';
+import IntegrationStatusWidget from '@/components/dashboard/IntegrationStatusWidget';
+import PendingCommentsWidget from '@/components/dashboard/PendingCommentsWidget';
+import PendingTasksWidget from '@/components/dashboard/PendingTasksWidget';
 
 export default function DashboardOverviewPage() {
   const [stats, setStats] = useState({
@@ -13,6 +16,7 @@ export default function DashboardOverviewPage() {
   });
   const [userRole, setUserRole] = useState<string | null>(null);
   const [recentEpisodes, setRecentEpisodes] = useState<any[]>([]);
+  const [allEpisodes, setAllEpisodes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -43,6 +47,7 @@ export default function DashboardOverviewPage() {
           files: r2Data.files?.length || 0,
         });
 
+        setAllEpisodes(episodes);
         setRecentEpisodes(episodes.slice(0, 5));
       } catch (err) {
         console.error('Error loading dashboard overview data:', err);
@@ -204,6 +209,13 @@ export default function DashboardOverviewPage() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* WIDGETS */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <PendingTasksWidget episodes={allEpisodes} />
+        <PendingCommentsWidget />
+        {userRole !== 'editor' && <IntegrationStatusWidget />}
       </div>
     </div>
   );

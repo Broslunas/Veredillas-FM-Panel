@@ -51,10 +51,10 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const { id } = await params;
   await dbConnect();
 
-  const post = await BlogPost.findByIdAndDelete(id);
+  const post = await BlogPost.findByIdAndUpdate(id, { deletedAt: new Date() }, { new: true });
   if (!post) {
     return NextResponse.json({ error: 'Artículo no encontrado' }, { status: 404 });
   }
 
-  return NextResponse.json({ success: true, message: 'Artículo eliminado correctamente' });
+  return NextResponse.json({ success: true, message: 'Artículo movido a la papelera' });
 }

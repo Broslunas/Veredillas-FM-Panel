@@ -41,7 +41,7 @@ export default function TeamListPage() {
   );
 
   const handleDelete = async (id: string) => {
-    if (!confirm('¿Deseas eliminar este miembro del equipo?')) return;
+    if (!confirm('¿Mover este miembro del equipo a la papelera? Podrás restaurarlo más tarde desde Papelera.')) return;
 
     setDeletingId(id);
     try {

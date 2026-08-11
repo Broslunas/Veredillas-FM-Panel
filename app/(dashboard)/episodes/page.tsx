@@ -1,19 +1,46 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, Search, Radio, Trash2, Edit2, Loader2, Sparkles } from 'lucide-react';
 
+type StatusFilter = 'all' | 'draft' | 'published';
+
 export default function EpisodesListPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-12 flex justify-center text-zinc-500 gap-2 font-mono text-xs">
+          <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
+          <span>Cargando episodios...</span>
+        </div>
+      }
+    >
+      <EpisodesListContent />
+    </Suspense>
+  );
+}
+
+function EpisodesListContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialStatus = searchParams.get('status');
   const [episodes, setEpisodes] = useState<any[]>([]);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(
+    initialStatus === 'draft' || initialStatus === 'published' ? initialStatus : 'all'
+  );
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const fetchEpisodes = async (query = '') => {
+  const fetchEpisodes = async (query = '', status: StatusFilter = 'all') => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/episodes?q=${encodeURIComponent(query)}`);
+      const params = new URLSearchParams();
+      if (query) params.set('q', query);
+      if (status !== 'all') params.set('status', status);
+      const res = await fetch(`/api/episodes?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         setEpisodes(data);
@@ -26,11 +53,19 @@ export default function EpisodesListPage() {
   };
 
   useEffect(() => {
-    fetchEpisodes(search);
-  }, [search]);
+    fetchEpisodes(search, statusFilter);
+  }, [search, statusFilter]);
+
+  const handleStatusFilterChange = (status: StatusFilter) => {
+    setStatusFilter(status);
+    const params = new URLSearchParams(searchParams.toString());
+    if (status === 'all') params.delete('status');
+    else params.set('status', status);
+    router.replace(`/episodes${params.toString() ? `?${params.toString()}` : ''}`, { scroll: false });
+  };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('¿Estás seguro de que deseas eliminar este episodio? Esta acción no se puede deshacer.')) return;
+    if (!confirm('¿Mover este episodio a la papelera? Podrás restaurarlo más tarde desde Papelera.')) return;
 
     setDeletingId(id);
     try {
@@ -80,6 +115,27 @@ export default function EpisodesListPage() {
         />
       </div>
 
+      {/* Status Filter */}
+      <div className="flex items-center gap-1.5">
+        {([
+          { value: 'all', label: 'Todos' },
+          { value: 'draft', label: 'Borradores' },
+          { value: 'published', label: 'Publicados' },
+        ] as { value: StatusFilter; label: string }[]).map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => handleStatusFilterChange(opt.value)}
+            className={`text-xs font-medium px-3 py-1.5 rounded-lg transition ${
+              statusFilter === opt.value
+                ? 'bg-zinc-800 text-zinc-100 border border-zinc-700/60'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60 border border-transparent'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
       {/* Table / List */}
       {loading ? (
         <div className="p-12 flex justify-center text-zinc-500 gap-2">
@@ -121,6 +177,11 @@ export default function EpisodesListPage() {
                 <div className="min-w-0 space-y-1">
                   <div className="flex items-center gap-2">
                     <h3 className="text-sm font-semibold text-zinc-100 truncate">{ep.title}</h3>
+                    {ep.status === 'draft' && (
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-400 shrink-0">
+                        Borrador
+                      </span>
+                    )}
                     {ep.isPremiere ? (
                       <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950/60 border border-amber-800/60 text-amber-400 shrink-0">
                         Estreno

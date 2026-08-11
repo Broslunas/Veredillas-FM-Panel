@@ -46,6 +46,7 @@ import {
   ArrowDown,
   Plus,
 } from 'lucide-react';
+import { formatChaptersForYouTubeDescription } from '@/lib/youtube-chapters';
 
 interface YouTubeChannel {
   id: string;
@@ -213,6 +214,10 @@ export default function YouTubeStudioPage() {
   const [privacyStatus, setPrivacyStatus] = useState<'public' | 'unlisted' | 'private'>('unlisted');
   const [categoryId, setCategoryId] = useState('22');
   const [tagsInput, setTagsInput] = useState('podcast, veredillas fm, radio');
+
+  // Episode linking (for chapter export + auto-fill)
+  const [episodeOptions, setEpisodeOptions] = useState<any[]>([]);
+  const [linkedEpisodeId, setLinkedEpisodeId] = useState('');
   
   // File states
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -250,6 +255,12 @@ export default function YouTubeStudioPage() {
       if (activeTab === 'playlists') fetchPlaylists();
       if (activeTab === 'comments') fetchComments();
       if (activeTab === 'live') fetchBroadcasts();
+      if (activeTab === 'upload' && episodeOptions.length === 0) {
+        fetch('/api/episodes')
+          .then((r) => (r.ok ? r.json() : []))
+          .then((data) => setEpisodeOptions(Array.isArray(data) ? data : []))
+          .catch(() => {});
+      }
     }
   }, [configured, activeTab, currentPageToken, pageSize]);
 
@@ -950,6 +961,18 @@ export default function YouTubeStudioPage() {
 
       setUploadedVideoId(videoId);
       setStatusMessage('¡Vídeo subido con éxito!');
+
+      if (linkedEpisodeId) {
+        try {
+          await fetch(`/api/episodes/${linkedEpisodeId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ videoUrl: `https://www.youtube.com/watch?v=${videoId}` }),
+          });
+        } catch (linkErr) {
+          console.warn('No se pudo vincular el vídeo al episodio:', linkErr);
+        }
+      }
 
       if (thumbnailFile) {
         setStatusMessage('Estableciendo miniatura personalizada...');
@@ -1892,6 +1915,50 @@ export default function YouTubeStudioPage() {
                   </>
                 )}
               </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                Vincular con episodio (opcional)
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <select
+                  value={linkedEpisodeId}
+                  onChange={(e) => setLinkedEpisodeId(e.target.value)}
+                  className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg px-3.5 py-2.5 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500 transition"
+                >
+                  <option value="">Sin vincular</option>
+                  {episodeOptions.map((ep) => (
+                    <option key={ep._id} value={ep._id}>
+                      {ep.title}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!linkedEpisodeId}
+                  onClick={() => {
+                    const ep = episodeOptions.find((e) => e._id === linkedEpisodeId);
+                    if (!ep) return;
+                    setTitle(ep.title);
+                    setTagsInput(Array.isArray(ep.tags) ? ep.tags.join(', ') : ep.tags || tagsInput);
+                    const chapters = formatChaptersForYouTubeDescription(ep.sections || []);
+                    setDescription((prev) => {
+                      const base = ep.description || prev;
+                      return chapters ? `${base}\n\n${chapters}` : base;
+                    });
+                  }}
+                  className="bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-200 text-xs font-medium px-4 py-2.5 rounded-lg transition flex items-center gap-2 shrink-0 whitespace-nowrap"
+                >
+                  <ListOrdered className="w-4 h-4 text-indigo-400" />
+                  <span>Usar datos del episodio</span>
+                </button>
+              </div>
+              {linkedEpisodeId && description.length > 5000 && (
+                <p className="text-[11px] text-amber-400 font-mono mt-1.5">
+                  La descripción supera los 5000 caracteres permitidos por YouTube ({description.length}).
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">

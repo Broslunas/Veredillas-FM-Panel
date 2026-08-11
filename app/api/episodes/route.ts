@@ -13,13 +13,17 @@ export async function GET(request: Request) {
   const q = searchParams.get('q') || '';
 
   await dbConnect();
-  const filter: any = {};
+  const filter: any = { deletedAt: null };
   if (q) {
     filter.$or = [
       { title: { $regex: q, $options: 'i' } },
       { description: { $regex: q, $options: 'i' } },
       { slug: { $regex: q, $options: 'i' } },
     ];
+  }
+  const status = searchParams.get('status');
+  if (status === 'draft' || status === 'published') {
+    filter.status = status;
   }
 
   const episodes = await EpisodeContent.find(filter).sort({ pubDate: -1, createdAt: -1 });

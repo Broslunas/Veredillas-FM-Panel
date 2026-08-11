@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   const schoolYear = searchParams.get('schoolYear') || '';
 
   await dbConnect();
-  const filter: any = {};
+  const filter: any = { deletedAt: null };
   if (q) {
     filter.$or = [
       { name: { $regex: q, $options: 'i' } },

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import R2Uploader from '@/components/R2Uploader';
 import ClipYouTubeBatchUploader from '@/components/ClipYouTubeBatchUploader';
@@ -19,9 +19,13 @@ import {
   Radio,
   Loader2,
   CheckCircle2,
+  XCircle,
+  Undo2,
   Sparkles,
   Music,
 } from 'lucide-react';
+
+const CHAPTER_TIME_REGEX = /^(\d{1,2}:)?\d{1,2}:\d{2}$/;
 
 interface EpisodeEditorProps {
   initialData?: any;
@@ -97,6 +101,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
   const [quizAiError, setQuizAiError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
+    status: (initialData?.status as 'draft' | 'published') || (isEdit ? 'published' : 'draft'),
     title: initialData?.title || '',
     slug: initialData?.slug || '',
     description: initialData?.description || '',
@@ -289,14 +294,20 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent, statusOverride?: 'draft' | 'published') => {
     e.preventDefault();
     setSaving(true);
     setSuccessMessage(null);
     setErrorMessage(null);
 
+    const nextStatus = statusOverride || formData.status;
+    if (statusOverride) {
+      setFormData((prev) => ({ ...prev, status: statusOverride }));
+    }
+
     const payload = {
       ...formData,
+      status: nextStatus,
       season: formData.season ? Number(formData.season) : undefined,
       episode: formData.episode ? Number(formData.episode) : undefined,
       tags: typeof formData.tags === 'string' ? formData.tags.split(',').map((t) => t.trim()).filter(Boolean) : formData.tags,
@@ -448,6 +459,39 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
     });
   };
 
+  // Publication checklist — gates the "Publicar" action but never blocks saving a draft.
+  const checklist = useMemo(() => {
+    const validChapters = formData.sections.filter(
+      (s: any) => s.title?.trim() && CHAPTER_TIME_REGEX.test((s.time || '').trim())
+    );
+    return [
+      { id: 'image', label: 'Imagen de portada', passed: !!formData.image?.trim(), tab: 'media' as TabType },
+      {
+        id: 'transcript',
+        label: 'Transcripción añadida',
+        passed: formData.transcription.some((t: any) => t.text?.trim()),
+        tab: 'transcript' as TabType,
+      },
+      {
+        id: 'chapters',
+        label: 'Capítulos válidos (título + tiempo mm:ss)',
+        passed: validChapters.length > 0,
+        tab: 'sections' as TabType,
+      },
+      {
+        id: 'seo',
+        label: 'SEO básico (título 10-100 y descripción 50-300 caracteres)',
+        passed:
+          formData.title.trim().length >= 10 &&
+          formData.title.trim().length <= 100 &&
+          formData.description.trim().length >= 50 &&
+          formData.description.trim().length <= 300,
+        tab: 'general' as TabType,
+      },
+    ];
+  }, [formData.image, formData.transcription, formData.sections, formData.title, formData.description]);
+  const allChecksPassed = checklist.every((c) => c.passed);
+
   return (
     <form onSubmit={handleSubmit} className="p-6 md:p-8 space-y-6 max-w-5xl mx-auto w-full">
       {/* Top Bar */}
@@ -461,23 +505,94 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
-            <h1 className="text-lg font-bold text-zinc-100">
-              {isEdit ? `Editar Episodio` : 'Nuevo Episodio'}
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-bold text-zinc-100">
+                {isEdit ? `Editar Episodio` : 'Nuevo Episodio'}
+              </h1>
+              {formData.status === 'draft' ? (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950/60 border border-amber-800/60 text-amber-400">
+                  Borrador
+                </span>
+              ) : (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-800/60 text-emerald-400">
+                  Publicado
+                </span>
+              )}
+            </div>
             <p className="text-xs text-zinc-400 font-mono">
               {formData.slug ? `/episodios/${formData.slug}` : 'Configuración de episodio'}
             </p>
           </div>
         </div>
 
-        <button
-          type="submit"
-          disabled={saving}
-          className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium px-5 py-2.5 rounded-lg transition flex items-center gap-2 shadow-lg shadow-indigo-600/20 disabled:opacity-50"
-        >
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          <span>{saving ? 'Guardando...' : 'Guardar Episodio'}</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {formData.status === 'draft' ? (
+            <>
+              <button
+                type="submit"
+                disabled={saving}
+                className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700/60 text-xs font-medium px-4 py-2.5 rounded-lg transition flex items-center gap-2 disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>{saving ? 'Guardando...' : 'Guardar Borrador'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => handleSubmit(e, 'published')}
+                disabled={saving || !allChecksPassed}
+                title={!allChecksPassed ? 'Completa el checklist de publicación para poder publicar' : undefined}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium px-5 py-2.5 rounded-lg transition flex items-center gap-2 shadow-lg shadow-indigo-600/20 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Publicar</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={(e) => handleSubmit(e, 'draft')}
+                disabled={saving}
+                className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700/60 text-xs font-medium px-3.5 py-2.5 rounded-lg transition flex items-center gap-2 disabled:opacity-50"
+              >
+                <Undo2 className="w-4 h-4" />
+                <span>Volver a borrador</span>
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium px-5 py-2.5 rounded-lg transition flex items-center gap-2 shadow-lg shadow-indigo-600/20 disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>{saving ? 'Guardando...' : 'Guardar Cambios'}</span>
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Publication Checklist */}
+      <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-xl p-4 space-y-2">
+        <h2 className="text-xs font-semibold text-zinc-300 uppercase tracking-wide font-mono">
+          Checklist de Publicación
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {checklist.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => changeTab(item.tab)}
+              className="flex items-center gap-2 text-left text-xs px-2.5 py-1.5 rounded-lg hover:bg-zinc-800/60 transition"
+            >
+              {item.passed ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              ) : (
+                <XCircle className="w-4 h-4 text-zinc-600 shrink-0" />
+              )}
+              <span className={item.passed ? 'text-zinc-300' : 'text-zinc-500'}>{item.label}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {successMessage && (
@@ -1178,7 +1293,13 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-semibold text-zinc-200">Secciones y Capítulos del Episodio</h3>
-              <p className="text-xs text-zinc-400">Añade marcas de tiempo para permitir la navegación por capítulos</p>
+              <p className="text-xs text-zinc-400">
+                Añade marcas de tiempo para permitir la navegación por capítulos &bull;{' '}
+                <span className={checklist.find((c) => c.id === 'chapters')?.passed ? 'text-emerald-400' : 'text-zinc-500'}>
+                  {formData.sections.filter((s: any) => s.title?.trim() && CHAPTER_TIME_REGEX.test((s.time || '').trim())).length}/
+                  {formData.sections.length} válidos
+                </span>
+              </p>
             </div>
 
             <button
@@ -1199,7 +1320,10 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
                   value={sec.time}
                   onChange={(e) => updateSection(idx, 'time', e.target.value)}
                   placeholder="00:00"
-                  className="w-24 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs text-zinc-100 font-mono text-center focus:outline-none focus:border-zinc-600"
+                  title={!CHAPTER_TIME_REGEX.test((sec.time || '').trim()) ? 'Formato esperado: mm:ss o h:mm:ss' : undefined}
+                  className={`w-24 bg-zinc-900 border rounded px-2 py-1 text-xs text-zinc-100 font-mono text-center focus:outline-none focus:border-zinc-600 ${
+                    CHAPTER_TIME_REGEX.test((sec.time || '').trim()) ? 'border-zinc-800' : 'border-amber-700/70'
+                  }`}
                 />
                 <input
                   type="text"

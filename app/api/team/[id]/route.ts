@@ -51,10 +51,10 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const { id } = await params;
   await dbConnect();
 
-  const member = await Team.findByIdAndDelete(id);
+  const member = await Team.findByIdAndUpdate(id, { deletedAt: new Date() }, { new: true });
   if (!member) {
     return NextResponse.json({ error: 'Miembro del equipo no encontrado' }, { status: 404 });
   }
 
-  return NextResponse.json({ success: true, message: 'Miembro del equipo eliminado correctamente' });
+  return NextResponse.json({ success: true, message: 'Miembro del equipo movido a la papelera' });
 }

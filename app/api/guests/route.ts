@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   const q = searchParams.get('q') || '';
 
   await dbConnect();
-  const filter: any = {};
+  const filter: any = { deletedAt: null };
   if (q) {
     filter.$or = [
       { name: { $regex: q, $options: 'i' } },

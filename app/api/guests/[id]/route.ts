@@ -51,10 +51,10 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const { id } = await params;
   await dbConnect();
 
-  const guest = await Guest.findByIdAndDelete(id);
+  const guest = await Guest.findByIdAndUpdate(id, { deletedAt: new Date() }, { new: true });
   if (!guest) {
     return NextResponse.json({ error: 'Invitado no encontrado' }, { status: 404 });
   }
 
-  return NextResponse.json({ success: true, message: 'Invitado eliminado correctamente' });
+  return NextResponse.json({ success: true, message: 'Invitado movido a la papelera' });
 }

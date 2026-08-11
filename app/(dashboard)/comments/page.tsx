@@ -84,6 +84,15 @@ export default function CommentsModerationPage() {
     fetchComments();
   }, [fetchComments]);
 
+  // Deep-link support: /comments?status=unverified pre-filters the view.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('status');
+    if (status === 'verified' || status === 'unverified') {
+      setStatusFilter(status);
+    }
+  }, []);
+
   // Metrics
   const totalComments = comments.length;
   const verifiedCount = useMemo(() => comments.filter((c) => c.isVerified).length, [comments]);

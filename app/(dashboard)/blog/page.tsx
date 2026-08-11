@@ -30,7 +30,7 @@ export default function BlogListPage() {
   }, [search]);
 
   const handleDelete = async (id: string) => {
-    if (!confirm('¿Deseas eliminar esta publicación del blog?')) return;
+    if (!confirm('¿Mover esta publicación a la papelera? Podrás restaurarla más tarde desde Papelera.')) return;
 
     setDeletingId(id);
     try {

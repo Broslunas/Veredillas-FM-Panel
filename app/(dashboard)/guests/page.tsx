@@ -30,7 +30,7 @@ export default function GuestsListPage() {
   }, [search]);
 
   const handleDelete = async (id: string) => {
-    if (!confirm('¿Deseas eliminar este invitado?')) return;
+    if (!confirm('¿Mover este invitado a la papelera? Podrás restaurarlo más tarde desde Papelera.')) return;
 
     setDeletingId(id);
     try {

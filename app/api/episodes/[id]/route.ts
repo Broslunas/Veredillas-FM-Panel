@@ -51,10 +51,10 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const { id } = await params;
   await dbConnect();
 
-  const episode = await EpisodeContent.findByIdAndDelete(id);
+  const episode = await EpisodeContent.findByIdAndUpdate(id, { deletedAt: new Date() }, { new: true });
   if (!episode) {
     return NextResponse.json({ error: 'Episodio no encontrado' }, { status: 404 });
   }
 
-  return NextResponse.json({ success: true, message: 'Episodio eliminado correctamente' });
+  return NextResponse.json({ success: true, message: 'Episodio movido a la papelera' });
 }

@@ -26,7 +26,10 @@ import {
   ExternalLink,
   Captions,
   Cpu,
+  Trash2,
+  CalendarDays,
 } from 'lucide-react';
+import CommandPalette from '@/components/dashboard/CommandPalette';
 
 interface UserSession {
   id: string;
@@ -138,6 +141,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       items: [
         { label: 'Visión General', href: '/', icon: LayoutDashboard },
         { label: 'En Vivo', href: '/live', icon: Activity },
+        { label: 'Calendario', href: '/calendar', icon: CalendarDays },
       ],
     },
     {
@@ -163,6 +167,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { label: 'Entrevistas', href: '/interviews', icon: Calendar },
         { label: 'Invitados', href: '/guests', icon: UserCheck },
         { label: 'Equipo', href: '/team', icon: Users },
+        { label: 'Papelera', href: '/trash', icon: Trash2 },
       ],
     },
     {
@@ -349,6 +354,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* MAIN CONTENT AREA (INDEPENDENT SCROLL) */}
       <main className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">{children}</main>
+
+      <CommandPalette navGroups={navGroups} />
     </div>
   );
 }
