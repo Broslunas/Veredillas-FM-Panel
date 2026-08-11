@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, CheckCircle2, XCircle, HardDrive, Cpu } from 'lucide-react';
+import { getActiveAlertThreshold, getAlertLevelForThreshold } from '@/lib/storage-alert-levels';
 
 const YoutubeIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg viewBox="0 0 24 24" fill="currentColor" {...props}>
@@ -142,7 +143,9 @@ export default function IntegrationStatusWidget() {
             </div>
           ) : (
             buckets.map((bucket) => {
-              const pct = bucket.maxBytes > 0 ? Math.min(100, (bucket.totalBytes / bucket.maxBytes) * 100) : 0;
+              const rawPct = bucket.maxBytes > 0 ? (bucket.totalBytes / bucket.maxBytes) * 100 : 0;
+              const pct = Math.min(100, rawPct);
+              const activeLevel = getAlertLevelForThreshold(getActiveAlertThreshold(rawPct));
               return (
                 <div key={bucket.id} className="space-y-1">
                   <div className="flex items-center justify-between gap-2">
@@ -156,8 +159,8 @@ export default function IntegrationStatusWidget() {
                   </div>
                   <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden ml-6">
                     <div
-                      className={`h-full rounded-full ${pct > 90 ? 'bg-red-500' : pct > 70 ? 'bg-amber-500' : 'bg-indigo-500'}`}
-                      style={{ width: `${pct}%` }}
+                      className="h-full rounded-full bg-indigo-500"
+                      style={{ width: `${pct}%`, backgroundColor: activeLevel?.color }}
                     />
                   </div>
                 </div>

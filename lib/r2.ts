@@ -12,6 +12,7 @@ import {
 import dbConnect from '@/lib/mongodb';
 import R2Bucket, { IR2Bucket, R2BucketType } from '@/models/R2Bucket';
 import { decryptSecret } from '@/lib/encryption';
+import { checkAndSendStorageAlert } from '@/lib/storage-alerts';
 
 export type R2UploadTarget = 'auto' | 'image' | 'audio' | 'video';
 
@@ -82,6 +83,8 @@ export function serializeBucketForClient(bucket: IR2Bucket) {
     endpoint: bucket.endpoint,
     publicUrlBase: bucket.publicUrlBase,
     maxBytes: bucket.maxBytes,
+    lastAlertThreshold: bucket.lastAlertThreshold || 0,
+    lastAlertAt: bucket.lastAlertAt || null,
     createdAt: bucket.createdAt,
     updatedAt: bucket.updatedAt,
   };
@@ -269,6 +272,8 @@ export async function uploadFileToR2(
   });
 
   await client.send(command);
+
+  await checkAndSendStorageAlert(bucket, currentUsage.totalBytes + fileBuffer.length);
 
   return { key, url: buildPublicUrl(bucket, key), bucket: bucket.bucketName };
 }
