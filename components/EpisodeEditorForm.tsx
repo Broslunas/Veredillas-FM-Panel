@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import R2Uploader from '@/components/R2Uploader';
 import ClipYouTubeBatchUploader from '@/components/ClipYouTubeBatchUploader';
@@ -23,9 +23,40 @@ import {
   Undo2,
   Sparkles,
   Music,
+  Users,
+  Play,
+  ChevronLeft,
+  ChevronRight,
+  UserCheck,
+  AlertCircle,
 } from 'lucide-react';
 
 const CHAPTER_TIME_REGEX = /^(\d{1,2}:)?\d{1,2}:\d{2}$/;
+
+// Speaker identification helpers
+const GENERIC_SPEAKER_REGEX = /^hablante\s*\d+$/i;
+const SPEAKER_COLORS = [
+  { dot: 'bg-indigo-500', ring: 'border-indigo-500/60', text: 'text-indigo-300', chip: 'bg-indigo-950/60 border-indigo-800/60' },
+  { dot: 'bg-emerald-500', ring: 'border-emerald-500/60', text: 'text-emerald-300', chip: 'bg-emerald-950/60 border-emerald-800/60' },
+  { dot: 'bg-amber-500', ring: 'border-amber-500/60', text: 'text-amber-300', chip: 'bg-amber-950/60 border-amber-800/60' },
+  { dot: 'bg-rose-500', ring: 'border-rose-500/60', text: 'text-rose-300', chip: 'bg-rose-950/60 border-rose-800/60' },
+  { dot: 'bg-cyan-500', ring: 'border-cyan-500/60', text: 'text-cyan-300', chip: 'bg-cyan-950/60 border-cyan-800/60' },
+  { dot: 'bg-fuchsia-500', ring: 'border-fuchsia-500/60', text: 'text-fuchsia-300', chip: 'bg-fuchsia-950/60 border-fuchsia-800/60' },
+  { dot: 'bg-lime-500', ring: 'border-lime-500/60', text: 'text-lime-300', chip: 'bg-lime-950/60 border-lime-800/60' },
+  { dot: 'bg-orange-500', ring: 'border-orange-500/60', text: 'text-orange-300', chip: 'bg-orange-950/60 border-orange-800/60' },
+];
+
+function isGenericSpeakerLabel(label: string): boolean {
+  return GENERIC_SPEAKER_REGEX.test(label.trim());
+}
+
+function timeStrToSeconds(time: string): number {
+  const parts = (time || '0:00').split(':').map((p) => parseInt(p, 10));
+  const nums = parts.map((p) => (Number.isNaN(p) ? 0 : p));
+  if (nums.length === 3) return nums[0] * 3600 + nums[1] * 60 + nums[2];
+  if (nums.length === 2) return nums[0] * 60 + nums[1];
+  return nums[0] || 0;
+}
 
 interface EpisodeEditorProps {
   initialData?: any;
@@ -87,6 +118,12 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
   const [deepgramError, setDeepgramError] = useState<string | null>(null);
   const [generatedSubtitles, setGeneratedSubtitles] = useState<{ srt: string; vtt: string } | null>(null);
   const [copiedSrt, setCopiedSrt] = useState(false);
+
+  // Speaker identification: media player + per-speaker preview cursor
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [speakerPreviewIndex, setSpeakerPreviewIndex] = useState<Record<string, number>>({});
+  const [activeSpeakerLabel, setActiveSpeakerLabel] = useState<string | null>(null);
 
   // Gemini AI Content Generation States
   const [aiTopic, setAiTopic] = useState('');
@@ -386,6 +423,69 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
       copy[idx] = { ...copy[idx], [field]: val };
       return { ...prev, transcription: copy };
     });
+  };
+
+  // Groups every transcription line by its current "speaker" label, in order
+  // of first appearance, so the identification panel lists each distinct
+  // person who speaks instead of raw "Hablante 0/1/2..." rows.
+  const speakerGroups = useMemo(() => {
+    const map = new Map<string, { label: string; count: number; segments: { time: string; idx: number }[] }>();
+    formData.transcription.forEach((tr: any, idx: number) => {
+      const label = (tr.speaker || '').trim();
+      if (!label) return;
+      if (!map.has(label)) map.set(label, { label, count: 0, segments: [] });
+      const group = map.get(label)!;
+      group.count += 1;
+      group.segments.push({ time: tr.time, idx });
+    });
+    return Array.from(map.values());
+  }, [formData.transcription]);
+
+  const speakerColorMap = useMemo(() => {
+    const colors: Record<string, (typeof SPEAKER_COLORS)[number]> = {};
+    speakerGroups.forEach((group, i) => {
+      colors[group.label] = SPEAKER_COLORS[i % SPEAKER_COLORS.length];
+    });
+    return colors;
+  }, [speakerGroups]);
+
+  const participantSuggestions = useMemo(
+    () =>
+      String(formData.participants || '')
+        .split(',')
+        .map((p) => p.trim())
+        .filter(Boolean),
+    [formData.participants]
+  );
+
+  // Seeks the episode's video (falls back to audio) to a given timestamp and
+  // plays it, so the admin can watch/listen and identify who is speaking.
+  const seekTo = (seconds: number) => {
+    const el: HTMLMediaElement | null = formData.videoUrl ? videoRef.current : audioRef.current;
+    if (!el) return;
+    el.currentTime = seconds;
+    el.play().catch(() => {});
+  };
+
+  const playSpeakerSegment = (label: string, segmentIdx: number) => {
+    const group = speakerGroups.find((g) => g.label === label);
+    const segment = group?.segments[segmentIdx];
+    if (!segment) return;
+    setActiveSpeakerLabel(label);
+    seekTo(timeStrToSeconds(segment.time));
+  };
+
+  // Renames a speaker label across every transcription line at once, so
+  // identifying one intervention updates every line where that person speaks.
+  const renameSpeaker = (oldLabel: string, newLabel: string) => {
+    const trimmed = newLabel.trim();
+    if (!trimmed || trimmed === oldLabel) return;
+    setFormData((prev) => ({
+      ...prev,
+      transcription: prev.transcription.map((t: any) =>
+        (t.speaker || '').trim() === oldLabel ? { ...t, speaker: trimmed } : t
+      ),
+    }));
   };
 
   // Clips helpers
@@ -1229,7 +1329,162 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
             )}
           </div>
 
-          
+          {/* Speaker Identification Panel */}
+          <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800/80 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-300">
+                  <Users className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-zinc-100">Identificación de Hablantes</h4>
+                  <p className="text-xs text-zinc-400">
+                    Reproduce cada intervención para ver quién habla y ponle su nombre real. Se actualizará en todas las líneas donde intervenga.
+                  </p>
+                </div>
+              </div>
+              {speakerGroups.length > 0 && (
+                <span className="text-[11px] font-mono text-zinc-400 shrink-0">
+                  {speakerGroups.filter((g) => !isGenericSpeakerLabel(g.label)).length}/{speakerGroups.length} identificados
+                </span>
+              )}
+            </div>
+
+            {(formData.videoUrl || formData.audioUrl) ? (
+              <div className="sticky top-2 z-10 rounded-xl overflow-hidden border border-zinc-800 bg-black shadow-lg">
+                {formData.videoUrl ? (
+                  <video ref={videoRef} src={formData.videoUrl} controls preload="metadata" className="w-full max-h-72 bg-black" />
+                ) : (
+                  <audio ref={audioRef} src={formData.audioUrl} controls preload="metadata" className="w-full bg-zinc-950 p-2" />
+                )}
+              </div>
+            ) : (
+              <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-900/50 text-xs text-amber-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>Sube un vídeo o audio en la pestaña &quot;Media&quot; para poder reproducir cada intervención y reconocer a los hablantes.</span>
+              </div>
+            )}
+
+            {speakerGroups.length === 0 ? (
+              <div className="p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80 text-xs text-zinc-500">
+                Aún no hay hablantes detectados. Genera la transcripción con Deepgram AI o rellena el campo &quot;Hablante&quot; en las líneas de abajo.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {speakerGroups.map((group) => {
+                  const color = speakerColorMap[group.label];
+                  const previewIdx = speakerPreviewIndex[group.label] ?? 0;
+                  const segment = group.segments[previewIdx];
+                  const identified = !isGenericSpeakerLabel(group.label);
+                  const isActive = activeSpeakerLabel === group.label;
+
+                  return (
+                    <div
+                      key={group.label}
+                      className={`rounded-xl border p-3 space-y-2.5 transition bg-zinc-950/60 ${
+                        isActive ? color.ring : 'border-zinc-800/80'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className={`w-8 h-8 rounded-full ${color.dot} flex items-center justify-center text-white text-xs font-bold shrink-0`}>
+                          {group.label.trim().charAt(0).toUpperCase() || '?'}
+                        </div>
+                        <input
+                          key={group.label}
+                          type="text"
+                          defaultValue={group.label}
+                          list="known-speaker-names"
+                          onBlur={(e) => renameSpeaker(group.label, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              (e.target as HTMLInputElement).blur();
+                            }
+                          }}
+                          className="flex-1 min-w-0 bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-xs text-zinc-100 focus:outline-none focus:border-indigo-500"
+                        />
+                        {identified ? (
+                          <span title="Identificado" className="shrink-0">
+                            <UserCheck className="w-4 h-4 text-emerald-400" />
+                          </span>
+                        ) : (
+                          <span title="Sin identificar" className="shrink-0">
+                            <AlertCircle className="w-4 h-4 text-amber-500" />
+                          </span>
+                        )}
+                      </div>
+
+                      {participantSuggestions.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {participantSuggestions.map((name) => (
+                            <button
+                              key={name}
+                              type="button"
+                              onClick={() => renameSpeaker(group.label, name)}
+                              className={`px-1.5 py-0.5 rounded text-[10px] border transition ${color.chip} ${color.text} hover:brightness-125`}
+                            >
+                              {name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSpeakerPreviewIndex((prev) => ({
+                              ...prev,
+                              [group.label]: Math.max(0, previewIdx - 1),
+                            }))
+                          }
+                          disabled={previewIdx === 0}
+                          className="p-1 text-zinc-500 hover:text-zinc-200 disabled:opacity-30 transition"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="text-[10px] font-mono text-zinc-500 text-center flex-1">
+                          {group.count === 1 ? '1 intervención' : `${group.count} intervenciones`} &bull; {previewIdx + 1}/{group.count} a los {segment.time}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSpeakerPreviewIndex((prev) => ({
+                              ...prev,
+                              [group.label]: Math.min(group.count - 1, previewIdx + 1),
+                            }))
+                          }
+                          disabled={previewIdx === group.count - 1}
+                          className="p-1 text-zinc-500 hover:text-zinc-200 disabled:opacity-30 transition"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => playSpeakerSegment(group.label, previewIdx)}
+                        disabled={!formData.videoUrl && !formData.audioUrl}
+                        className="w-full flex items-center justify-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 text-xs font-medium py-1.5 rounded-lg transition"
+                      >
+                        <Play className="w-3.5 h-3.5" />
+                        <span>Reproducir para identificar</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <datalist id="known-speaker-names">
+              {speakerGroups.map((g) => (
+                <option key={g.label} value={g.label} />
+              ))}
+              {participantSuggestions.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
+          </div>
 
           {/* Existing Manual/AI Line Feed */}
           <div className="flex items-center justify-between pt-2">
@@ -1249,40 +1504,60 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
           </div>
 
           <div className="space-y-3">
-            {formData.transcription.map((tr: any, idx: number) => (
-              <div key={idx} className="bg-zinc-950 p-3 border border-zinc-800/80 rounded-lg space-y-2">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={tr.time}
-                    onChange={(e) => updateTranscription(idx, 'time', e.target.value)}
-                    placeholder="00:00"
-                    className="w-24 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs text-zinc-100 font-mono text-center"
+            {formData.transcription.map((tr: any, idx: number) => {
+              const label = (tr.speaker || '').trim();
+              const color = label ? speakerColorMap[label] : undefined;
+              return (
+                <div
+                  key={idx}
+                  className={`bg-zinc-950 p-3 border rounded-lg space-y-2 ${color ? color.ring : 'border-zinc-800/80'}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => seekTo(timeStrToSeconds(tr.time))}
+                      disabled={!formData.videoUrl && !formData.audioUrl}
+                      title="Reproducir este momento"
+                      className="p-1.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-indigo-300 hover:border-indigo-700 disabled:opacity-30 transition shrink-0"
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                    </button>
+                    <input
+                      type="text"
+                      value={tr.time}
+                      onChange={(e) => updateTranscription(idx, 'time', e.target.value)}
+                      placeholder="00:00"
+                      className="w-24 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs text-zinc-100 font-mono text-center"
+                    />
+                    <div className="flex-1 flex items-center gap-1.5 min-w-0">
+                      {color && <span className={`w-2 h-2 rounded-full ${color.dot} shrink-0`} />}
+                      <input
+                        type="text"
+                        value={tr.speaker || ''}
+                        onChange={(e) => updateTranscription(idx, 'speaker', e.target.value)}
+                        placeholder="Hablante"
+                        list="known-speaker-names"
+                        className="w-full bg-zinc-900 border border-zinc-800 rounded px-3 py-1 text-xs text-zinc-100"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeTranscription(idx)}
+                      className="ml-auto p-1 text-zinc-500 hover:text-red-400 transition"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <textarea
+                    rows={2}
+                    value={tr.text}
+                    onChange={(e) => updateTranscription(idx, 'text', e.target.value)}
+                    placeholder="Texto dicho en este fragmento de tiempo..."
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded p-2 text-xs text-zinc-100 focus:outline-none focus:border-zinc-600"
                   />
-                  <input
-                    type="text"
-                    value={tr.speaker || ''}
-                    onChange={(e) => updateTranscription(idx, 'speaker', e.target.value)}
-                    placeholder="Hablante"
-                    className="w-48 bg-zinc-900 border border-zinc-800 rounded px-3 py-1 text-xs text-zinc-100"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeTranscription(idx)}
-                    className="ml-auto p-1 text-zinc-500 hover:text-red-400 transition"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
                 </div>
-                <textarea
-                  rows={2}
-                  value={tr.text}
-                  onChange={(e) => updateTranscription(idx, 'text', e.target.value)}
-                  placeholder="Texto dicho en este fragmento de tiempo..."
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded p-2 text-xs text-zinc-100 focus:outline-none focus:border-zinc-600"
-                />
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
