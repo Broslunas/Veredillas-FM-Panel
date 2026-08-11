@@ -12,7 +12,7 @@ import {
 import dbConnect from '@/lib/mongodb';
 import R2Bucket, { IR2Bucket, R2BucketType } from '@/models/R2Bucket';
 import { decryptSecret } from '@/lib/encryption';
-import { checkAndSendStorageAlert } from '@/lib/storage-alerts';
+import { checkAndSendStorageAlert, notifyUploadBlocked } from '@/lib/storage-alerts';
 
 export type R2UploadTarget = 'auto' | 'image' | 'audio' | 'video';
 
@@ -261,6 +261,7 @@ export async function uploadFileToR2(
 
   const currentUsage = await getBucketUsage(bucket.bucketName);
   if (currentUsage.totalBytes + fileBuffer.length > bucket.maxBytes) {
+    await notifyUploadBlocked(bucket, fileBuffer.length, currentUsage.totalBytes, fileName);
     throw new Error('Límite de bucket alcanzado. No se puede subir este archivo.');
   }
 
