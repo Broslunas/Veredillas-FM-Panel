@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation';
 import R2Uploader from '@/components/R2Uploader';
 import { Save, ArrowLeft, Loader2, CheckCircle2, X } from 'lucide-react';
 import { GUEST_CREATED_MESSAGE_TYPE } from '@/lib/guestQuickCreate';
+import { useAutoSaveDraft } from '@/lib/useAutoSaveDraft';
+import AutoSaveDraftBanner from '@/components/AutoSaveDraftBanner';
+import AutoSaveStatus from '@/components/AutoSaveStatus';
 
 interface GuestEditorProps {
   initialData?: any;
@@ -42,6 +45,20 @@ export default function GuestEditorForm({ initialData, isEdit = false, popup = f
     },
   });
 
+  const {
+    lastAutoSavedAt,
+    draftAvailable,
+    draftSavedAt,
+    restoreDraft,
+    discardDraft,
+    markSaved,
+  } = useAutoSaveDraft(`guest:${initialData?._id || 'new'}`, formData);
+
+  const handleRestoreDraft = () => {
+    const draft = restoreDraft();
+    if (draft) setFormData(draft);
+  };
+
   const handleNameChange = (val: string) => {
     const updated: any = { name: val };
     if (!isEdit && !formData.slug) {
@@ -69,6 +86,7 @@ export default function GuestEditorForm({ initialData, isEdit = false, popup = f
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al guardar el invitado');
 
+      markSaved();
       setSuccessMessage(isEdit ? 'Invitado actualizado con éxito' : 'Invitado creado con éxito');
 
       if (popup) {
@@ -112,6 +130,7 @@ export default function GuestEditorForm({ initialData, isEdit = false, popup = f
                 ? `/invitados/${formData.slug}`
                 : 'Perfil de participante'}
             </p>
+            <AutoSaveStatus lastAutoSavedAt={lastAutoSavedAt} />
           </div>
         </div>
 
@@ -124,6 +143,10 @@ export default function GuestEditorForm({ initialData, isEdit = false, popup = f
           <span>{saving ? 'Guardando...' : 'Guardar Invitado'}</span>
         </button>
       </div>
+
+      {draftAvailable && (
+        <AutoSaveDraftBanner savedAt={draftSavedAt} onRestore={handleRestoreDraft} onDiscard={discardDraft} />
+      )}
 
       {successMessage && (
         <div className="p-3 bg-emerald-950/40 border border-emerald-900/60 rounded-lg text-xs text-emerald-300 flex items-center gap-2 font-mono">

@@ -4,6 +4,9 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import R2Uploader from '@/components/R2Uploader';
 import { Save, ArrowLeft, Loader2, CheckCircle2, Eye, Edit3, Sparkles } from 'lucide-react';
+import { useAutoSaveDraft } from '@/lib/useAutoSaveDraft';
+import AutoSaveDraftBanner from '@/components/AutoSaveDraftBanner';
+import AutoSaveStatus from '@/components/AutoSaveStatus';
 
 interface BlogEditorProps {
   initialData?: any;
@@ -34,6 +37,20 @@ export default function BlogEditorForm({ initialData, isEdit = false }: BlogEdit
     tags: Array.isArray(initialData?.tags) ? initialData.tags.join(', ') : initialData?.tags || '',
     body: initialData?.body || '',
   });
+
+  const {
+    lastAutoSavedAt,
+    draftAvailable,
+    draftSavedAt,
+    restoreDraft,
+    discardDraft,
+    markSaved,
+  } = useAutoSaveDraft(`blog:${initialData?._id || 'new'}`, formData);
+
+  const handleRestoreDraft = () => {
+    const draft = restoreDraft();
+    if (draft) setFormData(draft);
+  };
 
   const handleTitleChange = (val: string) => {
     const updated: any = { title: val };
@@ -110,6 +127,7 @@ export default function BlogEditorForm({ initialData, isEdit = false }: BlogEdit
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al guardar el artículo');
 
+      markSaved();
       setSuccessMessage(isEdit ? 'Artículo actualizado con éxito' : 'Artículo publicado con éxito');
       setTimeout(() => {
         router.push('/blog');
@@ -140,6 +158,7 @@ export default function BlogEditorForm({ initialData, isEdit = false }: BlogEdit
             <p className="text-xs text-zinc-400 font-mono">
               {formData.slug ? `/blog/${formData.slug}` : 'Redacción y publicación'}
             </p>
+            <AutoSaveStatus lastAutoSavedAt={lastAutoSavedAt} />
           </div>
         </div>
 
@@ -152,6 +171,10 @@ export default function BlogEditorForm({ initialData, isEdit = false }: BlogEdit
           <span>{saving ? 'Guardando...' : 'Publicar Artículo'}</span>
         </button>
       </div>
+
+      {draftAvailable && (
+        <AutoSaveDraftBanner savedAt={draftSavedAt} onRestore={handleRestoreDraft} onDiscard={discardDraft} />
+      )}
 
       {successMessage && (
         <div className="p-3 bg-emerald-950/40 border border-emerald-900/60 rounded-lg text-xs text-emerald-300 flex items-center gap-2 font-mono">

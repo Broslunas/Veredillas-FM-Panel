@@ -8,6 +8,9 @@ import ClipYouTubeBatchUploader from '@/components/ClipYouTubeBatchUploader';
 import AudioExtractionProgress from '@/components/AudioExtractionProgress';
 import { uploadFileToR2ViaPresignedUrl } from '@/lib/r2-client';
 import { ExtractionProgress, extractMp3FromVideoFile, extractMp3FromVideoUrl } from '@/lib/audio-extraction';
+import { useAutoSaveDraft } from '@/lib/useAutoSaveDraft';
+import AutoSaveDraftBanner from '@/components/AutoSaveDraftBanner';
+import AutoSaveStatus from '@/components/AutoSaveStatus';
 import {
   Save,
   ArrowLeft,
@@ -201,6 +204,20 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
     clips: initialData?.clips || [{ title: '', url: '' }],
     quiz: initialData?.quiz || [{ question: '', options: ['', '', '', ''], correctAnswer: 0 }],
   });
+
+  const {
+    lastAutoSavedAt,
+    draftAvailable,
+    draftSavedAt,
+    restoreDraft,
+    discardDraft,
+    markSaved,
+  } = useAutoSaveDraft(`episode:${initialData?._id || 'new'}`, formData);
+
+  const handleRestoreDraft = () => {
+    const draft = restoreDraft();
+    if (draft) setFormData(draft);
+  };
 
   const handleTitleChange = (val: string) => {
     const updated: any = { title: val };
@@ -460,6 +477,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al guardar el episodio');
 
+      markSaved();
       setSuccessMessage(isEdit ? 'Episodio actualizado con éxito' : 'Episodio creado con éxito');
       setTimeout(() => {
         router.push('/episodes');
@@ -714,6 +732,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
             <p className="text-xs text-zinc-400 font-mono">
               {formData.slug ? `/episodios/${formData.slug}` : 'Configuración de episodio'}
             </p>
+            <AutoSaveStatus lastAutoSavedAt={lastAutoSavedAt} />
           </div>
         </div>
 
@@ -786,6 +805,10 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
           ))}
         </div>
       </div>
+
+      {draftAvailable && (
+        <AutoSaveDraftBanner savedAt={draftSavedAt} onRestore={handleRestoreDraft} onDiscard={discardDraft} />
+      )}
 
       {successMessage && (
         <div className="p-3 bg-emerald-950/40 border border-emerald-900/60 rounded-lg text-xs text-emerald-300 flex items-center gap-2 font-mono">
