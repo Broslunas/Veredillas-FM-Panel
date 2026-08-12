@@ -34,6 +34,16 @@ import {
 
 const CHAPTER_TIME_REGEX = /^(\d{1,2}:)?\d{1,2}:\d{2}$/;
 
+function slugifyValue(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
 // Speaker identification helpers
 const GENERIC_SPEAKER_REGEX = /^hablante\s*\d+$/i;
 const SPEAKER_COLORS = [
@@ -49,6 +59,29 @@ const SPEAKER_COLORS = [
 
 function isGenericSpeakerLabel(label: string): boolean {
   return GENERIC_SPEAKER_REGEX.test(label.trim());
+}
+
+// Small AI-generate affordance shown next to a field's label. `error` is the
+// "you need to fill in X first" hint (or a request failure) rendered under
+// the field when generation isn't possible yet.
+function AiFieldButton({ loading, onClick }: { loading: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={loading}
+      className="inline-flex items-center gap-1 text-[10px] font-mono font-semibold text-indigo-400 hover:text-indigo-300 disabled:opacity-50 transition shrink-0"
+      title="Generar con IA"
+    >
+      {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+      <span>IA</span>
+    </button>
+  );
+}
+
+function AiFieldHint({ message }: { message: string | null }) {
+  if (!message) return null;
+  return <p className="text-[11px] text-amber-400 mt-1">{message}</p>;
 }
 
 function timeStrToSeconds(time: string): number {
@@ -126,12 +159,19 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
   const [speakerPreviewIndex, setSpeakerPreviewIndex] = useState<Record<string, number>>({});
   const [activeSpeakerLabel, setActiveSpeakerLabel] = useState<string | null>(null);
 
-  // Gemini AI Content Generation States
-  const [aiTopic, setAiTopic] = useState('');
-  const [aiNotes, setAiNotes] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiStatus, setAiStatus] = useState<string | null>(null);
-  const [aiError, setAiError] = useState<string | null>(null);
+  // Gemini AI per-field content generation state: one loading/error slot per
+  // generatable field, since each field is now generated independently.
+  type AiFieldKey = 'title' | 'slug' | 'description' | 'tags' | 'participants' | 'warningMessage' | 'body' | 'sections';
+  const [fieldAiState, setFieldAiState] = useState<Record<AiFieldKey, { loading: boolean; error: string | null }>>({
+    title: { loading: false, error: null },
+    slug: { loading: false, error: null },
+    description: { loading: false, error: null },
+    tags: { loading: false, error: null },
+    participants: { loading: false, error: null },
+    warningMessage: { loading: false, error: null },
+    body: { loading: false, error: null },
+    sections: { loading: false, error: null },
+  });
 
   // Gemini AI Quiz Generation States (from transcript + chapters)
   const [quizAiLoading, setQuizAiLoading] = useState(false);
@@ -151,7 +191,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
     season: initialData?.season || '',
     episode: initialData?.episode || '',
     videoUrl: initialData?.videoUrl || '',
-    tags: Array.isArray(initialData?.tags) ? initialData.tags.join(', ') : initialData?.tags || 'General',
+    tags: Array.isArray(initialData?.tags) ? initialData.tags.join(', ') : initialData?.tags || '',
     participants: Array.isArray(initialData?.participants) ? initialData.participants.join(', ') : initialData?.participants || '',
     isPremiere: Boolean(initialData?.isPremiere),
     warningMessage: initialData?.warningMessage || '',
@@ -165,58 +205,109 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
   const handleTitleChange = (val: string) => {
     const updated: any = { title: val };
     if (!isEdit && !formData.slug) {
-      updated.slug = val
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '');
+      updated.slug = slugifyValue(val);
     }
     setFormData((prev) => ({ ...prev, ...updated }));
   };
 
-  const handleGenerateWithAI = async () => {
-    if (!aiTopic.trim()) {
-      setAiError('Escribe primero un tema para generar el episodio.');
+  const hasTranscript = formData.transcription.some((t: any) => t.text && t.text.trim());
+  const hasIdentifiedSpeakers = formData.transcription.some(
+    (t: any) => t.speaker && t.speaker.trim() && !isGenericSpeakerLabel(t.speaker)
+  );
+
+  // Per-field AI generation: each field lists what other fields it needs
+  // filled in first, since there's no longer a single "topic" to work from.
+  const getFieldRequirementError = (field: AiFieldKey): string | null => {
+    const hasTitle = !!formData.title.trim();
+    const hasDescription = !!formData.description.trim();
+    const hasBody = !!formData.body.trim();
+
+    switch (field) {
+      case 'title':
+        return hasDescription || hasBody || hasTranscript
+          ? null
+          : 'Tienes que rellenar la descripción, las notas del programa o la transcripción para poder generar el título.';
+      case 'slug':
+        return hasTitle ? null : 'Tienes que rellenar el título para poder generar el slug.';
+      case 'description':
+        return hasTitle || hasBody || hasTranscript
+          ? null
+          : 'Tienes que rellenar el título, las notas del programa o la transcripción para poder generar la descripción.';
+      case 'tags':
+        return hasTitle || hasDescription || hasBody || hasTranscript
+          ? null
+          : 'Tienes que rellenar el título, la descripción o la transcripción para poder generar las etiquetas.';
+      case 'participants':
+        return hasIdentifiedSpeakers
+          ? null
+          : 'Tienes que identificar a los hablantes en la transcripción (pestaña 3) para poder generar los participantes.';
+      case 'warningMessage':
+        return hasDescription || hasBody || hasTranscript
+          ? null
+          : 'Tienes que rellenar la descripción, las notas del programa o la transcripción para poder generar el aviso.';
+      case 'body':
+        return hasTitle || hasDescription || hasTranscript
+          ? null
+          : 'Tienes que rellenar el título, la descripción o la transcripción para poder generar las notas del programa.';
+      case 'sections':
+        return hasTranscript ? null : 'Tienes que añadir la transcripción del episodio (pestaña 3) para poder generar los capítulos.';
+      default:
+        return null;
+    }
+  };
+
+  const handleGenerateField = async (field: AiFieldKey) => {
+    const requirementError = getFieldRequirementError(field);
+    if (requirementError) {
+      setFieldAiState((prev) => ({ ...prev, [field]: { loading: false, error: requirementError } }));
       return;
     }
 
-    setAiError(null);
-    setAiStatus('Generando contenido del episodio con Gemini AI...');
-    setAiLoading(true);
+    if (field === 'slug') {
+      setFormData((prev) => ({ ...prev, slug: slugifyValue(prev.title) }));
+      setFieldAiState((prev) => ({ ...prev, slug: { loading: false, error: null } }));
+      return;
+    }
+
+    setFieldAiState((prev) => ({ ...prev, [field]: { loading: true, error: null } }));
 
     try {
-      const res = await fetch('/api/admin/gemini/generate-episode', {
+      const res = await fetch('/api/admin/gemini/generate-episode-field', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          topic: aiTopic,
-          notes: aiNotes,
-          participants: formData.participants,
-          tags: formData.tags,
+          field,
+          context: {
+            title: formData.title,
+            description: formData.description,
+            tags: formData.tags,
+            participants: formData.participants,
+            body: formData.body,
+            warningMessage: formData.warningMessage,
+            transcription: formData.transcription,
+            sections: formData.sections,
+          },
         }),
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error al generar el episodio con IA');
+      if (!res.ok) throw new Error(data.error || 'Error al generar con IA');
 
-      setFormData((prev) => ({
-        ...prev,
-        title: data.title || prev.title,
-        slug: prev.slug || data.slug || prev.slug,
-        description: data.description || prev.description,
-        tags: Array.isArray(data.tags) && data.tags.length ? data.tags.join(', ') : prev.tags,
-        body: data.body || prev.body,
-        sections: Array.isArray(data.sections) && data.sections.length ? data.sections : prev.sections,
-        quiz: Array.isArray(data.quiz) && data.quiz.length ? data.quiz : prev.quiz,
-      }));
-      setAiStatus('¡Contenido generado! Revisa el título, las notas, los capítulos y el quiz antes de guardar.');
+      setFormData((prev) => {
+        switch (field) {
+          case 'tags':
+            return { ...prev, tags: Array.isArray(data.value) ? data.value.join(', ') : prev.tags };
+          case 'participants':
+            return { ...prev, participants: Array.isArray(data.value) ? data.value.join(', ') : prev.participants };
+          case 'sections':
+            return { ...prev, sections: Array.isArray(data.value) && data.value.length ? data.value : prev.sections };
+          default:
+            return { ...prev, [field]: typeof data.value === 'string' ? data.value : (prev as any)[field] };
+        }
+      });
+      setFieldAiState((prev) => ({ ...prev, [field]: { loading: false, error: null } }));
     } catch (err: any) {
-      setAiError(err.message || 'Error al generar el episodio con IA');
-      setAiStatus(null);
-    } finally {
-      setAiLoading(false);
+      setFieldAiState((prev) => ({ ...prev, [field]: { loading: false, error: err.message || 'Error al generar con IA' } }));
     }
   };
 
@@ -780,89 +871,15 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
       {/* TAB 1: GENERAL */}
       {activeTab === 'general' && (
         <div className="space-y-6">
-          {/* Gemini AI Content Generation */}
-          <div className="bg-gradient-to-r from-indigo-950/60 via-zinc-900 to-purple-950/60 border border-indigo-800/60 rounded-2xl p-5 space-y-4 shadow-xl">
-            <div className="flex items-center gap-2.5 border-b border-indigo-900/40 pb-3">
-              <div className="w-8 h-8 rounded-xl bg-indigo-600/30 border border-indigo-500/50 flex items-center justify-center text-indigo-300">
-                <Sparkles className="w-4 h-4" />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
-                  <span>Generar Episodio con IA</span>
-                  <span className="text-[10px] font-mono font-bold bg-indigo-950 border border-indigo-800 text-indigo-300 px-2 py-0.5 rounded">
-                    Gemini
-                  </span>
-                </h4>
-                <p className="text-xs text-zinc-400">
-                  Describe el tema y Gemini redactará título, descripción, etiquetas, notas de programa, capítulos y un quiz.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
-              <div className="md:col-span-5 space-y-1.5">
-                <label className="text-zinc-300 font-mono text-[11px] font-semibold">Tema del episodio *</label>
-                <input
-                  type="text"
-                  value={aiTopic}
-                  onChange={(e) => setAiTopic(e.target.value)}
-                  placeholder="Ej: Entrevista sobre salud mental en la adolescencia"
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div className="md:col-span-7 space-y-1.5">
-                <label className="text-zinc-300 font-mono text-[11px] font-semibold">Notas / contexto adicional (opcional)</label>
-                <input
-                  type="text"
-                  value={aiNotes}
-                  onChange={(e) => setAiNotes(e.target.value)}
-                  placeholder="Fragmentos de la transcripción, temas tratados, anécdotas..."
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleGenerateWithAI}
-              disabled={aiLoading}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs shadow-md shadow-indigo-600/20"
-            >
-              {aiLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin text-white" />
-                  <span>Generando...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4 text-indigo-300" />
-                  <span>Generar Contenido con IA</span>
-                </>
-              )}
-            </button>
-
-            {aiStatus && !aiError && (
-              <div className="p-2.5 rounded-xl bg-indigo-950/60 border border-indigo-800/80 text-xs font-mono text-indigo-300 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>{aiStatus}</span>
-              </div>
-            )}
-
-            {aiError && (
-              <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-800/80 text-xs font-mono text-rose-300 flex items-center gap-2">
-                <span className="text-rose-400 font-bold">⚠️ Error:</span>
-                <span>{aiError}</span>
-              </div>
-            )}
-          </div>
-
           <div className="space-y-4 bg-zinc-900/40 p-6 rounded-xl border border-zinc-800/80">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400 mb-1">
-                Título del Episodio *
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400">
+                  Título del Episodio *
+                </label>
+                <AiFieldButton loading={fieldAiState.title.loading} onClick={() => handleGenerateField('title')} />
+              </div>
               <input
                 type="text"
                 required
@@ -871,12 +888,16 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
                 placeholder="Ej: Amor Sin Filtros ft. Saray"
                 className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition font-medium"
               />
+              <AiFieldHint message={fieldAiState.title.error} />
             </div>
 
             <div>
-              <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400 mb-1">
-                Slug Único *
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400">
+                  Slug Único *
+                </label>
+                <AiFieldButton loading={fieldAiState.slug.loading} onClick={() => handleGenerateField('slug')} />
+              </div>
               <input
                 type="text"
                 required
@@ -885,13 +906,17 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
                 placeholder="amor-sin-filtros"
                 className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-100 font-mono placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition"
               />
+              <AiFieldHint message={fieldAiState.slug.error} />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400 mb-1">
-              Descripción Corta *
-            </label>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400">
+                Descripción Corta *
+              </label>
+              <AiFieldButton loading={fieldAiState.description.loading} onClick={() => handleGenerateField('description')} />
+            </div>
             <textarea
               required
               rows={3}
@@ -900,6 +925,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
               placeholder="Breve resumen del episodio..."
               className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition"
             />
+            <AiFieldHint message={fieldAiState.description.error} />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -984,33 +1010,44 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400 mb-1">
-                Etiquetas (separadas por coma)
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400">
+                  Etiquetas (separadas por coma)
+                </label>
+                <AiFieldButton loading={fieldAiState.tags.loading} onClick={() => handleGenerateField('tags')} />
+              </div>
               <input
                 type="text"
                 value={formData.tags}
                 onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                placeholder="General, Amor, Entrevista"
+                placeholder="Ej: Amor, Entrevista"
                 className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-zinc-500 transition"
               />
+              <AiFieldHint message={fieldAiState.tags.error} />
             </div>
 
             <div>
-              <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400 mb-1">
-                Participantes
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400">
+                  Participantes
+                </label>
+                <AiFieldButton loading={fieldAiState.participants.loading} onClick={() => handleGenerateField('participants')} />
+              </div>
               <ParticipantsPicker
                 value={formData.participants}
                 onChange={(val) => setFormData({ ...formData, participants: val })}
               />
+              <AiFieldHint message={fieldAiState.participants.error} />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400 mb-1">
-              Mensaje de Advertencia (Contenido Sensible)
-            </label>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400">
+                Mensaje de Advertencia (Contenido Sensible)
+              </label>
+              <AiFieldButton loading={fieldAiState.warningMessage.loading} onClick={() => handleGenerateField('warningMessage')} />
+            </div>
             <input
               type="text"
               value={formData.warningMessage}
@@ -1018,12 +1055,16 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
               placeholder="Este episodio contiene lenguaje explícito..."
               className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-zinc-500 transition"
             />
+            <AiFieldHint message={fieldAiState.warningMessage.error} />
           </div>
 
           <div className="pt-2 border-t border-zinc-800/80">
-            <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400 mb-1">
-              Notas del Programa / Show Notes (Soporta HTML)
-            </label>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400">
+                Notas del Programa / Show Notes (Soporta HTML)
+              </label>
+              <AiFieldButton loading={fieldAiState.body.loading} onClick={() => handleGenerateField('body')} />
+            </div>
             <textarea
               rows={10}
               value={formData.body}
@@ -1031,6 +1072,7 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
               placeholder="Notas ampliadas del episodio: contexto, temas tratados, enlaces mencionados..."
               className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-sm text-zinc-100 font-mono placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition"
             />
+            <AiFieldHint message={fieldAiState.body.error} />
           </div>
           </div>
         </div>
@@ -1575,15 +1617,32 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={addSection}
-              className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium px-3 py-1.5 rounded-lg transition flex items-center gap-1.5"
-            >
-              <Plus className="w-4 h-4 text-indigo-400" />
-              <span>Añadir Sección</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleGenerateField('sections')}
+                disabled={fieldAiState.sections.loading}
+                className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition flex items-center gap-1.5"
+              >
+                {fieldAiState.sections.loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4 text-indigo-200" />
+                )}
+                <span>Generar Capítulos con IA</span>
+              </button>
+              <button
+                type="button"
+                onClick={addSection}
+                className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium px-3 py-1.5 rounded-lg transition flex items-center gap-1.5"
+              >
+                <Plus className="w-4 h-4 text-indigo-400" />
+                <span>Añadir Sección</span>
+              </button>
+            </div>
           </div>
+
+          <AiFieldHint message={fieldAiState.sections.error} />
 
           <div className="space-y-2">
             {formData.sections.map((sec: any, idx: number) => (

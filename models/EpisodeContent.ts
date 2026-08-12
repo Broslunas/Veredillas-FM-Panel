@@ -65,7 +65,7 @@ const EpisodeContentSchema = new Schema<IEpisodeContent>(
     season: { type: Number },
     episode: { type: Number },
     videoUrl: { type: String },
-    tags: { type: [String], default: ['General'] },
+    tags: { type: [String], default: [] },
     participants: { type: [String] },
     isPremiere: { type: Boolean, default: false },
     transcription: [
