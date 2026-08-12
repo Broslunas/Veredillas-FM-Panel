@@ -422,6 +422,80 @@ export async function listR2Files(prefix: string = '', bucketName?: string) {
   }
 }
 
+export async function listUnifiedFolderContents(
+  prefix: string = '',
+  continuationTokens: Record<string, string> = {}
+) {
+  await dbConnect();
+  const buckets = await R2Bucket.find({ isActive: true }).lean<IR2Bucket[]>();
+
+  const results = await Promise.allSettled(
+    buckets.map(async (bucket) => {
+      const client = getS3ClientForBucket(bucket);
+      const response = await client.send(
+        new ListObjectsV2Command({
+          Bucket: bucket.bucketName,
+          Prefix: prefix,
+          Delimiter: '/',
+          MaxKeys: 200,
+          ContinuationToken: continuationTokens[bucket.bucketName],
+        })
+      );
+
+      const folders = (response.CommonPrefixes || []).map((item) => item.Prefix || '').filter(Boolean);
+      const files = (response.Contents || [])
+        .filter((item) => item.Key && item.Key !== prefix)
+        .map((item) => ({
+          key: item.Key || '',
+          size: item.Size || 0,
+          lastModified: item.LastModified,
+          url: buildPublicUrl(bucket, item.Key || ''),
+          bucketId: bucket._id.toString(),
+          bucketName: bucket.bucketName,
+          bucketLabel: bucket.label,
+        }));
+
+      return {
+        bucketName: bucket.bucketName,
+        folders,
+        files,
+        isTruncated: Boolean(response.IsTruncated),
+        nextContinuationToken: response.NextContinuationToken,
+      };
+    })
+  );
+
+  const perBucket = results
+    .map((result) => (result.status === 'fulfilled' ? result.value : null))
+    .filter((value): value is NonNullable<typeof value> => value !== null);
+
+  const folderSet = new Set<string>();
+  perBucket.forEach((entry) => entry.folders.forEach((folder) => folderSet.add(folder)));
+
+  const files = perBucket.flatMap((entry) => entry.files);
+
+  const continuationTokensOut: Record<string, string> = {};
+  let hasMore = false;
+  perBucket.forEach((entry) => {
+    if (entry.isTruncated && entry.nextContinuationToken) {
+      continuationTokensOut[entry.bucketName] = entry.nextContinuationToken;
+      hasMore = true;
+    }
+  });
+
+  const failedBuckets = results
+    .map((result, index) => (result.status === 'rejected' ? buckets[index]?.bucketName : null))
+    .filter((name): name is string => Boolean(name));
+
+  return {
+    folders: Array.from(folderSet).sort(),
+    files,
+    hasMore,
+    continuationTokens: continuationTokensOut,
+    failedBuckets,
+  };
+}
+
 export async function listR2FolderContents(bucketName: string, prefix: string = '', continuationToken?: string) {
   const bucket = await resolveBucketByName(bucketName);
   const client = getS3ClientForBucket(bucket);

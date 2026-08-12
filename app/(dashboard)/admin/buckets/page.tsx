@@ -19,6 +19,7 @@ import {
   Link2,
   PieChart,
   FileType,
+  Layers,
 } from 'lucide-react';
 import BucketFileBrowser from '@/components/BucketFileBrowser';
 import { getActiveAlertThreshold, getAlertLevelForThreshold } from '@/lib/storage-alert-levels';
@@ -134,6 +135,7 @@ export default function BucketsAdminPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [connectedBucket, setConnectedBucket] = useState<BucketItem | null>(null);
+  const [unifiedOpen, setUnifiedOpen] = useState(false);
   const [statsScope, setStatsScope] = useState<string>('all');
 
   useEffect(() => {
@@ -206,6 +208,25 @@ export default function BucketsAdminPage() {
       clips: buckets.filter((b) => b.type === 'clips'),
     };
   }, [buckets]);
+
+  const activeBuckets = useMemo(() => buckets.filter((b) => b.isActive), [buckets]);
+
+  const aggregateUsage = useMemo(() => {
+    let totalBytes = 0;
+    let totalObjects = 0;
+    let totalMaxBytes = 0;
+    let loadedCount = 0;
+    for (const b of activeBuckets) {
+      totalMaxBytes += b.maxBytes;
+      const u = usage[b.id];
+      if (u) {
+        totalBytes += u.totalBytes;
+        totalObjects += u.totalObjects;
+        loadedCount += 1;
+      }
+    }
+    return { totalBytes, totalObjects, totalMaxBytes, loadedCount, bucketCount: activeBuckets.length };
+  }, [activeBuckets, usage]);
 
   const extensionBreakdown = useMemo(() => {
     const relevantUsage: UsageInfo[] =
@@ -488,6 +509,56 @@ export default function BucketsAdminPage() {
         </div>
       ) : (
         <>
+          <section className="rounded-3xl border border-indigo-500/30 bg-indigo-500/5 p-4 space-y-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-2 text-zinc-100">
+                <Layers className="w-5 h-5 shrink-0 text-indigo-400 mt-0.5" />
+                <div>
+                  <h2 className="text-sm font-semibold">Almacenamiento unificado</h2>
+                  <p className="text-xs text-zinc-400">
+                    Explora, busca y gestiona los archivos de los {aggregateUsage.bucketCount} bucket(s) activos
+                    como si fueran un único almacenamiento.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setUnifiedOpen(true)}
+                disabled={aggregateUsage.bucketCount === 0}
+                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
+              >
+                <Link2 className="w-4 h-4" /> Conectar a todos los buckets
+              </button>
+            </div>
+
+            {aggregateUsage.bucketCount > 0 && (
+              <div>
+                <div className="flex items-center justify-between text-xs text-zinc-400">
+                  <span>
+                    {formatSize(aggregateUsage.totalBytes)} / {formatSize(aggregateUsage.totalMaxBytes)}
+                  </span>
+                  <span>{aggregateUsage.totalObjects} archivo(s)</span>
+                </div>
+                <div className="mt-2 h-2 rounded-full bg-zinc-900 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-indigo-500"
+                    style={{
+                      width: `${
+                        aggregateUsage.totalMaxBytes > 0
+                          ? Math.min(100, Math.round((aggregateUsage.totalBytes / aggregateUsage.totalMaxBytes) * 100))
+                          : 0
+                      }%`,
+                    }}
+                  />
+                </div>
+                {aggregateUsage.loadedCount < aggregateUsage.bucketCount && (
+                  <p className="mt-1 text-[11px] text-amber-400/80">
+                    Algunos buckets aún no han cargado su uso; el total puede estar incompleto.
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
+
           <section className="space-y-3">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-200">
               <ImageIcon className="w-4 h-4 text-indigo-400" /> Imágenes y otros
@@ -743,8 +814,17 @@ export default function BucketsAdminPage() {
 
       {connectedBucket && (
         <BucketFileBrowser
+          mode="single"
           bucket={connectedBucket}
           onClose={() => setConnectedBucket(null)}
+        />
+      )}
+
+      {unifiedOpen && (
+        <BucketFileBrowser
+          mode="unified"
+          buckets={activeBuckets.map((b) => ({ id: b.id, label: b.label, bucketName: b.bucketName }))}
+          onClose={() => setUnifiedOpen(false)}
         />
       )}
     </div>

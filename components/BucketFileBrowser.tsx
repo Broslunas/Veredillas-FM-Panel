@@ -16,17 +16,29 @@ import {
   Video,
   ChevronRight,
   RefreshCw,
+  Layers,
 } from 'lucide-react';
+
+interface BucketLike {
+  id: string;
+  label: string;
+  bucketName: string;
+}
 
 interface FileItem {
   key: string;
   size: number;
   lastModified?: string | Date;
   url: string;
+  bucketId?: string;
+  bucketName?: string;
+  bucketLabel?: string;
 }
 
 interface BucketFileBrowserProps {
-  bucket: { id: string; label: string; bucketName: string };
+  mode?: 'single' | 'unified';
+  bucket?: BucketLike;
+  buckets?: BucketLike[];
   onClose: () => void;
 }
 
@@ -43,11 +55,15 @@ function fileNameFromKey(key: string) {
   return trimmed.split('/').pop() || trimmed;
 }
 
-export default function BucketFileBrowser({ bucket, onClose }: BucketFileBrowserProps) {
+export default function BucketFileBrowser({ mode = 'single', bucket, buckets, onClose }: BucketFileBrowserProps) {
+  const isUnified = mode === 'unified';
+
   const [currentPrefix, setCurrentPrefix] = useState('');
   const [folders, setFolders] = useState<string[]>([]);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [continuationToken, setContinuationToken] = useState<string | undefined>(undefined);
+  const [unifiedTokens, setUnifiedTokens] = useState<Record<string, string>>({});
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,34 +77,62 @@ export default function BucketFileBrowser({ bucket, onClose }: BucketFileBrowser
   const [renameValue, setRenameValue] = useState('');
   const [savingRename, setSavingRename] = useState<string | null>(null);
 
+  const bucketNameForFile = useCallback(
+    (file: FileItem) => file.bucketName || bucket?.bucketName || '',
+    [bucket?.bucketName]
+  );
+
   const load = useCallback(
-    async (prefix: string, token?: string, append = false) => {
+    async (prefix: string, tokenState?: string | Record<string, string>, append = false) => {
       if (append) setLoadingMore(true);
       else setLoading(true);
       setError(null);
 
       try {
-        const params = new URLSearchParams({ bucket: bucket.bucketName, prefix });
-        if (token) params.set('continuationToken', token);
+        if (isUnified) {
+          const tokens = (tokenState as Record<string, string>) || {};
+          const params = new URLSearchParams({ prefix });
+          if (Object.keys(tokens).length > 0) params.set('tokens', JSON.stringify(tokens));
 
-        const res = await fetch(`/api/r2/browse?${params.toString()}`);
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          throw new Error(data?.error || 'Error al explorar el bucket');
+          const res = await fetch(`/api/r2/browse-unified?${params.toString()}`);
+          if (!res.ok) {
+            const data = await res.json().catch(() => null);
+            throw new Error(data?.error || 'Error al explorar el almacenamiento unificado');
+          }
+
+          const data = await res.json();
+          setFolders((prev) => (append ? Array.from(new Set([...prev, ...data.folders])) : data.folders));
+          setFiles((prev) => (append ? [...prev, ...data.files] : data.files));
+          setUnifiedTokens(data.continuationTokens || {});
+          setHasMore(Boolean(data.hasMore));
+          if (data.failedBuckets?.length) {
+            setError(`No se pudieron cargar algunos buckets: ${data.failedBuckets.join(', ')}`);
+          }
+        } else {
+          if (!bucket) return;
+          const token = tokenState as string | undefined;
+          const params = new URLSearchParams({ bucket: bucket.bucketName, prefix });
+          if (token) params.set('continuationToken', token);
+
+          const res = await fetch(`/api/r2/browse?${params.toString()}`);
+          if (!res.ok) {
+            const data = await res.json().catch(() => null);
+            throw new Error(data?.error || 'Error al explorar el bucket');
+          }
+
+          const data = await res.json();
+          setFolders((prev) => (append ? Array.from(new Set([...prev, ...data.folders])) : data.folders));
+          setFiles((prev) => (append ? [...prev, ...data.files] : data.files));
+          setContinuationToken(data.nextContinuationToken);
         }
-
-        const data = await res.json();
-        setFolders((prev) => (append ? Array.from(new Set([...prev, ...data.folders])) : data.folders));
-        setFiles((prev) => (append ? [...prev, ...data.files] : data.files));
-        setContinuationToken(data.nextContinuationToken);
       } catch (err: any) {
-        setError(err.message || 'Error al explorar el bucket');
+        setError(err.message || 'Error al explorar el almacenamiento');
       } finally {
         setLoading(false);
         setLoadingMore(false);
       }
     },
-    [bucket.bucketName]
+    [isUnified, bucket]
   );
 
   useEffect(() => {
@@ -161,13 +205,13 @@ export default function BucketFileBrowser({ bucket, onClose }: BucketFileBrowser
       const res = await fetch('/api/r2/files', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: file.key, bucket: bucket.bucketName }),
+        body: JSON.stringify({ key: file.key, bucket: bucketNameForFile(file) }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         throw new Error(data?.error || 'Error al eliminar el archivo');
       }
-      setFiles((prev) => prev.filter((item) => item.key !== file.key));
+      setFiles((prev) => prev.filter((item) => item.key !== file.key || item.bucketName !== file.bucketName));
     } catch (err: any) {
       setError(err.message || 'Error al eliminar el archivo');
     } finally {
@@ -181,14 +225,36 @@ export default function BucketFileBrowser({ bucket, onClose }: BucketFileBrowser
     setDeletingFolder(folderPrefix);
     setError(null);
     try {
-      const res = await fetch('/api/r2/files', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prefix: folderPrefix, bucket: bucket.bucketName }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error || 'Error al eliminar la carpeta');
+      if (isUnified) {
+        const targets = buckets || [];
+        const results = await Promise.allSettled(
+          targets.map(async (b) => {
+            const res = await fetch('/api/r2/files', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ prefix: folderPrefix, bucket: b.bucketName }),
+            });
+            if (!res.ok) {
+              const data = await res.json().catch(() => null);
+              throw new Error(data?.error || `Error al eliminar la carpeta en ${b.label}`);
+            }
+          })
+        );
+        const failed = results.filter((r) => r.status === 'rejected');
+        if (failed.length > 0) {
+          setError(`No se pudo eliminar la carpeta en ${failed.length} de ${targets.length} bucket(s).`);
+        }
+      } else {
+        if (!bucket) return;
+        const res = await fetch('/api/r2/files', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prefix: folderPrefix, bucket: bucket.bucketName }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          throw new Error(data?.error || 'Error al eliminar la carpeta');
+        }
       }
       await load(currentPrefix);
     } catch (err: any) {
@@ -226,7 +292,7 @@ export default function BucketFileBrowser({ bucket, onClose }: BucketFileBrowser
       const res = await fetch('/api/r2/files', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: file.key, bucket: bucket.bucketName, newKey }),
+        body: JSON.stringify({ key: file.key, bucket: bucketNameForFile(file), newKey }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -245,8 +311,21 @@ export default function BucketFileBrowser({ bucket, onClose }: BucketFileBrowser
     <div className="fixed inset-0 z-50 flex flex-col bg-zinc-950">
       <div className="flex items-center justify-between border-b border-zinc-800/80 px-5 py-4 shrink-0">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-zinc-100 truncate">{bucket.label}</p>
-          <p className="text-xs text-zinc-500 truncate">{bucket.bucketName}</p>
+          {isUnified ? (
+            <>
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100 truncate">
+                <Layers className="w-4 h-4 text-indigo-400" /> Almacenamiento unificado
+              </p>
+              <p className="text-xs text-zinc-500 truncate">
+                {buckets?.length || 0} bucket(s) conectados: {buckets?.map((b) => b.label).join(', ')}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-zinc-100 truncate">{bucket?.label}</p>
+              <p className="text-xs text-zinc-500 truncate">{bucket?.bucketName}</p>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -332,7 +411,7 @@ export default function BucketFileBrowser({ bucket, onClose }: BucketFileBrowser
 
             {filteredFiles.map((file) => (
               <div
-                key={file.key}
+                key={`${file.bucketId || ''}:${file.key}`}
                 className="rounded-2xl border border-zinc-800/80 bg-zinc-900 px-4 py-3"
               >
                 <div className="flex items-center justify-between gap-3">
@@ -341,8 +420,13 @@ export default function BucketFileBrowser({ bucket, onClose }: BucketFileBrowser
                       {iconForFile(file.key)}
                     </div>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-zinc-100" title={file.key}>
+                      <p className="flex items-center gap-1.5 truncate text-sm font-medium text-zinc-100" title={file.key}>
                         {fileNameFromKey(file.key)}
+                        {isUnified && file.bucketLabel && (
+                          <span className="shrink-0 rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-normal text-zinc-400">
+                            {file.bucketLabel}
+                          </span>
+                        )}
                       </p>
                       <p className="text-xs text-zinc-500">
                         {formatSize(file.size)}
@@ -415,10 +499,10 @@ export default function BucketFileBrowser({ bucket, onClose }: BucketFileBrowser
               </div>
             )}
 
-            {continuationToken && (
+            {(isUnified ? hasMore : Boolean(continuationToken)) && (
               <div className="pt-2 text-center">
                 <button
-                  onClick={() => load(currentPrefix, continuationToken, true)}
+                  onClick={() => load(currentPrefix, isUnified ? unifiedTokens : continuationToken, true)}
                   disabled={loadingMore}
                   className="rounded-2xl bg-zinc-900 px-4 py-2 text-xs font-medium text-zinc-300 hover:bg-zinc-800 transition"
                 >
