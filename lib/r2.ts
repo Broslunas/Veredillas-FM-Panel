@@ -69,6 +69,12 @@ export function buildPublicUrl(bucket: IR2Bucket, key: string): string {
   return `${bucket.publicUrlBase.replace(/\/+$/, '')}/${cleanKey}`;
 }
 
+/**
+ * Serializes bucket configuration for client consumption without exposing the encrypted secret.
+ *
+ * @param bucket - The bucket configuration to serialize
+ * @returns Client-facing bucket metadata, including whether a secret is configured and the latest alert information
+ */
 export function serializeBucketForClient(bucket: IR2Bucket) {
   return {
     id: bucket._id.toString(),
@@ -248,6 +254,18 @@ export async function resolveR2ObjectFromUrl(url: string): Promise<{ bucket: IR2
   return { bucket, key };
 }
 
+/**
+ * Uploads a file to an R2 bucket and returns its storage location.
+ *
+ * @param fileBuffer - The file contents to upload
+ * @param fileName - The original file name used to generate the object key
+ * @param contentType - The file's MIME type
+ * @param folder - The destination folder
+ * @param target - The bucket category to use
+ * @param entityId - Optional entity identifier for generating an entity-based key
+ * @returns The object key, public URL, and bucket name
+ * @throws Error if uploading the file would exceed the bucket's size limit
+ */
 export async function uploadFileToR2(
   fileBuffer: Buffer,
   fileName: string,

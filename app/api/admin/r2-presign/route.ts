@@ -5,6 +5,12 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { resolveUploadDestination, getS3ClientForBucket, buildPublicUrl, getBucketUsage, R2UploadTarget } from '@/lib/r2';
 import { notifyUploadBlocked } from '@/lib/storage-alerts';
 
+/**
+ * Generates a presigned URL and public URL for uploading a file to storage.
+ *
+ * @param request - The incoming request containing the file name, content type, and upload destination details.
+ * @returns The presigned upload URL, public file URL, and object key.
+ */
 export async function POST(request: Request) {
   try {
     const { authorized } = await isAuthorizedAdmin(request);

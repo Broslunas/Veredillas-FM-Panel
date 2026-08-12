@@ -3,10 +3,26 @@ import R2Bucket, { IR2Bucket } from '@/models/R2Bucket';
 import User from '@/models/User';
 import { STORAGE_ALERT_LEVELS, getActiveAlertThreshold, getAlertLevelForThreshold, StorageAlertLevel } from '@/lib/storage-alert-levels';
 
+/**
+ * Formats a byte count as gigabytes with two decimal places.
+ *
+ * @param bytes - The number of bytes to convert
+ * @returns The formatted gigabyte value
+ */
 function formatGB(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
 }
 
+/**
+ * Sends a storage-capacity alert email to the specified recipients.
+ *
+ * @param recipients - Recipients who should receive the alert
+ * @param bucketLabel - Display name of the bucket
+ * @param level - Alert level and its presentation details
+ * @param totalBytes - Current storage usage in bytes
+ * @param maxBytes - Maximum bucket capacity in bytes
+ * @param percentUsed - Current percentage of capacity used
+ */
 async function sendStorageAlertEmail(
   recipients: { email: string; name: string }[],
   bucketLabel: string,
@@ -64,6 +80,16 @@ async function sendStorageAlertEmail(
   }
 }
 
+/**
+ * Sends an email notification when an upload would exceed a bucket's storage limit.
+ *
+ * @param recipients - Email recipients with their display names
+ * @param bucketLabel - Label of the bucket whose limit was reached
+ * @param attemptedBytes - Size of the upload that was blocked
+ * @param currentBytes - Bucket storage currently in use
+ * @param maxBytes - Maximum storage allowed for the bucket
+ * @param fileName - Optional name of the blocked file
+ */
 async function sendUploadBlockedEmail(
   recipients: { email: string; name: string }[],
   bucketLabel: string,
@@ -127,7 +153,14 @@ const UPLOAD_BLOCKED_COOLDOWN_MS = 10 * 60 * 1000; // evita reenviar en ráfagas
 
 type BlockableBucket = Pick<IR2Bucket, '_id' | 'label' | 'maxBytes'> & { lastUploadBlockedAt?: Date | null };
 
-// Notifica a admins/owners cuando una subida se cancela por superar el límite del bucket.
+/**
+ * Notifies administrators and owners when an upload is blocked because it exceeds the bucket limit.
+ *
+ * @param bucket - The bucket whose upload limit was exceeded
+ * @param attemptedBytes - Size of the blocked upload in bytes
+ * @param currentBytes - Current bucket usage in bytes
+ * @param fileName - Optional name of the blocked file
+ */
 export async function notifyUploadBlocked(
   bucket: BlockableBucket,
   attemptedBytes: number,
@@ -163,7 +196,12 @@ type AlertableBucket = Pick<IR2Bucket, '_id' | 'label' | 'maxBytes'> & { lastAle
 // Comprueba si el uso del bucket ha cruzado uno de los niveles de aviso (75% / 83% / 90% / 98%)
 // y, si es así, notifica por email a admins/owners. No reenvía el mismo nivel dos veces,
 // y si el uso baja por debajo de un nivel ya notificado, se rearma para volver a avisar
-// si vuelve a subir.
+/**
+ * Checks a bucket's storage usage and sends an alert when it reaches a new threshold.
+ *
+ * @param bucket - The bucket whose configured storage limit and alert state are evaluated
+ * @param totalBytes - The bucket's current storage usage in bytes
+ */
 export async function checkAndSendStorageAlert(bucket: AlertableBucket, totalBytes: number): Promise<void> {
   try {
     if (!bucket.maxBytes || bucket.maxBytes <= 0) return;

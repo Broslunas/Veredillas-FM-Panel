@@ -116,6 +116,9 @@ function iconForExtension(extension: string) {
   return <FileType className="w-3.5 h-3.5 text-zinc-500" />;
 }
 
+/**
+ * Provides an administrative interface for managing Cloudflare R2 buckets, monitoring storage usage, and browsing bucket files.
+ */
 export default function BucketsAdminPage() {
   const router = useRouter();
   const [authChecked, setAuthChecked] = useState(false);

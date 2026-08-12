@@ -5,6 +5,13 @@ import R2Bucket from '@/models/R2Bucket';
 import { getBucketUsage } from '@/lib/r2';
 import { checkAndSendStorageAlert } from '@/lib/storage-alerts';
 
+/**
+ * Retrieves storage usage for a bucket.
+ *
+ * @param request - The incoming request used to verify authorization
+ * @param params - Route parameters containing the bucket ID
+ * @returns A response containing the bucket's usage totals, configured limit, and extension breakdown
+ */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { authorized } = await isAuthorizedOwnerOrAdmin(request);
   if (!authorized) {

@@ -23,6 +23,9 @@ function formatGB(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+/**
+ * Displays the connection status and usage details for configured YouTube, Deepgram, and R2 storage integrations.
+ */
 export default function IntegrationStatusWidget() {
   const [loading, setLoading] = useState(true);
   const [youtube, setYoutube] = useState<{ configured: boolean; channel: any } | null>(null);
