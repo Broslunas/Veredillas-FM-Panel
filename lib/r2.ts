@@ -14,7 +14,7 @@ import R2Bucket, { IR2Bucket, R2BucketType } from '@/models/R2Bucket';
 import { decryptSecret } from '@/lib/encryption';
 import { checkAndSendStorageAlert, notifyUploadBlocked } from '@/lib/storage-alerts';
 
-export type R2UploadTarget = 'auto' | 'image' | 'audio' | 'video';
+export type R2UploadTarget = 'auto' | 'image' | 'audio' | 'video' | 'clip';
 
 const s3ClientCache = new Map<string, S3Client>();
 
@@ -197,6 +197,9 @@ export async function resolveUploadDestination(
   if (target === 'image' || (target === 'auto' && isImage)) {
     resolvedType = 'images';
     resolvedFolder = resolvedFolder || 'images';
+  } else if (target === 'clip') {
+    resolvedType = 'clips';
+    resolvedFolder = resolvedFolder || 'clips';
   } else if (target === 'video' || (target === 'auto' && isVideo)) {
     resolvedType = 'multimedia';
     resolvedFolder = resolvedFolder || 'videos';

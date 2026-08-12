@@ -5,7 +5,7 @@ import R2Bucket, { HARD_MAX_BUCKET_BYTES, R2BucketType } from '@/models/R2Bucket
 import { encryptSecret } from '@/lib/encryption';
 import { serializeBucketForClient } from '@/lib/r2';
 
-const VALID_TYPES: R2BucketType[] = ['images', 'multimedia'];
+const VALID_TYPES: R2BucketType[] = ['images', 'multimedia', 'clips'];
 
 export async function GET(request: Request) {
   const { authorized } = await isAuthorizedOwnerOrAdmin(request);

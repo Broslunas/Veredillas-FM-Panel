@@ -2,7 +2,7 @@ import mongoose, { Schema } from 'mongoose';
 
 export const HARD_MAX_BUCKET_BYTES = Math.floor(9.2 * 1024 ** 3); // 9.2GB, techo estricto del sistema
 
-export type R2BucketType = 'images' | 'multimedia';
+export type R2BucketType = 'images' | 'multimedia' | 'clips';
 
 export interface IR2Bucket {
   _id: mongoose.Types.ObjectId;
@@ -28,7 +28,7 @@ const R2BucketSchema = new Schema<IR2Bucket>(
   {
     label: { type: String, required: true, trim: true },
     bucketName: { type: String, required: true, unique: true, trim: true },
-    type: { type: String, enum: ['images', 'multimedia'], required: true },
+    type: { type: String, enum: ['images', 'multimedia', 'clips'], required: true },
     isDefault: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
     accountId: { type: String, required: true },
