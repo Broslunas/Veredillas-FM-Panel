@@ -8,7 +8,7 @@
 
 import mongoose from 'mongoose';
 import { spawn } from 'child_process';
-import { mkdir, writeFile, readFile } from 'fs/promises';
+import { mkdir, writeFile, readFile, rename } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 
@@ -77,7 +77,9 @@ async function loadManifest() {
 }
 
 async function saveManifest(manifest) {
-  await writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2), 'utf8');
+  const tmpPath = `${MANIFEST_PATH}.tmp`;
+  await writeFile(tmpPath, JSON.stringify(manifest, null, 2), 'utf8');
+  await rename(tmpPath, MANIFEST_PATH); // atomic: a Ctrl+C mid-write can't corrupt manifest.json
 }
 
 const episodeContentSchema = new mongoose.Schema({}, { strict: false });

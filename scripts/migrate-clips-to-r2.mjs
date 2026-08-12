@@ -9,7 +9,7 @@
 import mongoose from 'mongoose';
 import { createDecipheriv } from 'crypto';
 import { S3Client, PutObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
-import { readFile, writeFile, unlink, stat } from 'fs/promises';
+import { readFile, writeFile, unlink, stat, rename } from 'fs/promises';
 import path from 'path';
 
 const OUTPUT_DIR = path.resolve(process.cwd(), 'tmp/clips-download');
@@ -35,6 +35,12 @@ async function getBucketUsage(client, bucketName) {
     continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
   } while (continuationToken);
   return totalBytes;
+}
+
+async function saveManifest(manifest) {
+  const tmpPath = `${MANIFEST_PATH}.tmp`;
+  await writeFile(tmpPath, JSON.stringify(manifest, null, 2), 'utf8');
+  await rename(tmpPath, MANIFEST_PATH); // atomic: a Ctrl+C mid-write can't corrupt manifest.json
 }
 
 const r2BucketSchema = new mongoose.Schema({}, { strict: false });
@@ -146,7 +152,7 @@ async function main() {
     }
 
     manifest = manifest.map((m) => (m.key === entry.key ? entry : m));
-    await writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2), 'utf8');
+    await saveManifest(manifest);
   }
 
   await mongoose.disconnect();
