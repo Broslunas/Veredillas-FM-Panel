@@ -4,6 +4,9 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import R2Uploader from '@/components/R2Uploader';
 import { Save, ArrowLeft, Loader2, CheckCircle2, Plus, Trash2 } from 'lucide-react';
+import { useAutoSaveDraft } from '@/lib/useAutoSaveDraft';
+import AutoSaveDraftBanner from '@/components/AutoSaveDraftBanner';
+import AutoSaveStatus from '@/components/AutoSaveStatus';
 
 interface TeamLink {
   label: string;
@@ -42,6 +45,20 @@ export default function TeamEditorForm({ initialData, isEdit = false }: TeamEdit
       ? (initialData.links as TeamLink[])
       : [],
   });
+
+  const {
+    lastAutoSavedAt,
+    draftAvailable,
+    draftSavedAt,
+    restoreDraft,
+    discardDraft,
+    markSaved,
+  } = useAutoSaveDraft(`team:${initialData?._id || 'new'}`, formData);
+
+  const handleRestoreDraft = () => {
+    const draft = restoreDraft();
+    if (draft) setFormData(draft);
+  };
 
   const handleNameChange = (val: string) => {
     const updated: any = { name: val };
@@ -97,6 +114,7 @@ export default function TeamEditorForm({ initialData, isEdit = false }: TeamEdit
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al guardar el miembro del equipo');
 
+      markSaved();
       setSuccessMessage(isEdit ? 'Miembro actualizado con éxito' : 'Miembro creado con éxito');
       setTimeout(() => {
         router.push('/team');
@@ -127,6 +145,7 @@ export default function TeamEditorForm({ initialData, isEdit = false }: TeamEdit
             <p className="text-xs text-zinc-400 font-mono">
               {formData.slug ? `/equipo/${formData.slug}` : 'Perfil del equipo'}
             </p>
+            <AutoSaveStatus lastAutoSavedAt={lastAutoSavedAt} />
           </div>
         </div>
 
@@ -139,6 +158,10 @@ export default function TeamEditorForm({ initialData, isEdit = false }: TeamEdit
           <span>{saving ? 'Guardando...' : 'Guardar Miembro'}</span>
         </button>
       </div>
+
+      {draftAvailable && (
+        <AutoSaveDraftBanner savedAt={draftSavedAt} onRestore={handleRestoreDraft} onDiscard={discardDraft} />
+      )}
 
       {successMessage && (
         <div className="p-3 bg-emerald-950/40 border border-emerald-900/60 rounded-lg text-xs text-emerald-300 flex items-center gap-2 font-mono">
