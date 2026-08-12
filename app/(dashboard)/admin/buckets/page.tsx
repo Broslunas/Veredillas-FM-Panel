@@ -20,6 +20,7 @@ import {
   FileType,
 } from 'lucide-react';
 import BucketFileBrowser from '@/components/BucketFileBrowser';
+import { getActiveAlertThreshold, getAlertLevelForThreshold } from '@/lib/storage-alert-levels';
 
 const HARD_MAX_GB = 9.2;
 const HARD_MAX_BYTES = Math.floor(HARD_MAX_GB * 1024 ** 3);
@@ -39,6 +40,8 @@ interface BucketItem {
   endpoint: string;
   publicUrlBase: string;
   maxBytes: number;
+  lastAlertThreshold: number;
+  lastAlertAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -368,7 +371,10 @@ export default function BucketsAdminPage() {
 
   const renderBucketCard = (bucket: BucketItem) => {
     const usageInfo = usage[bucket.id];
-    const percent = usageInfo ? Math.min(100, Math.round((usageInfo.totalBytes / bucket.maxBytes) * 100)) : null;
+    const rawPercent = usageInfo ? (usageInfo.totalBytes / bucket.maxBytes) * 100 : null;
+    const percent = rawPercent !== null ? Math.min(100, Math.round(rawPercent)) : null;
+    const activeLevel = rawPercent !== null ? getAlertLevelForThreshold(getActiveAlertThreshold(rawPercent)) : undefined;
+    const barColor = activeLevel ? activeLevel.color : undefined;
 
     return (
       <div key={bucket.id} className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4">
@@ -420,15 +426,25 @@ export default function BucketsAdminPage() {
             <>
               <div className="flex items-center justify-between text-xs text-zinc-400">
                 <span>{formatSize(usageInfo.totalBytes)} / {formatSize(bucket.maxBytes)}</span>
-                <span>{percent}%</span>
+                <span style={barColor ? { color: barColor } : undefined}>{percent}%</span>
               </div>
               <div className="mt-2 h-2 rounded-full bg-zinc-900 overflow-hidden">
                 <div
-                  className={`h-full rounded-full ${percent !== null && percent >= 90 ? 'bg-red-500' : 'bg-indigo-500'}`}
-                  style={{ width: `${percent ?? 0}%` }}
+                  className="h-full rounded-full bg-indigo-500"
+                  style={{ width: `${percent ?? 0}%`, backgroundColor: barColor }}
                 />
               </div>
               <p className="mt-1 text-[11px] text-zinc-600">{usageInfo.totalObjects} archivo(s)</p>
+              {activeLevel && (
+                <p className="mt-1 text-[11px]" style={{ color: activeLevel.color }}>
+                  {activeLevel.emoji} {activeLevel.label} &mdash; se ha notificado a admins/owners
+                </p>
+              )}
+              {!activeLevel && bucket.lastAlertAt && (
+                <p className="mt-1 text-[11px] text-zinc-600">
+                  Último aviso enviado: {new Date(bucket.lastAlertAt).toLocaleDateString('es-ES')}
+                </p>
+              )}
             </>
           ) : (
             <p className="text-xs text-zinc-600">Calculando uso...</p>

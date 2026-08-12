@@ -17,6 +17,9 @@ export interface IR2Bucket {
   endpoint: string;
   publicUrlBase: string;
   maxBytes: number;
+  lastAlertThreshold: number;
+  lastAlertAt: Date | null;
+  lastUploadBlockedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -34,6 +37,9 @@ const R2BucketSchema = new Schema<IR2Bucket>(
     endpoint: { type: String, required: true },
     publicUrlBase: { type: String, required: true },
     maxBytes: { type: Number, required: true, max: HARD_MAX_BUCKET_BYTES },
+    lastAlertThreshold: { type: Number, default: 0 },
+    lastAlertAt: { type: Date, default: null },
+    lastUploadBlockedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

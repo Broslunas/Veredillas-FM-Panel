@@ -3,6 +3,7 @@ import { isAuthorizedOwnerOrAdmin } from '@/lib/api-guard';
 import dbConnect from '@/lib/mongodb';
 import R2Bucket from '@/models/R2Bucket';
 import { getBucketUsage } from '@/lib/r2';
+import { checkAndSendStorageAlert } from '@/lib/storage-alerts';
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { authorized } = await isAuthorizedOwnerOrAdmin(request);
@@ -20,6 +21,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
   try {
     const { totalBytes, totalObjects, byExtension } = await getBucketUsage(bucket.bucketName);
+    await checkAndSendStorageAlert(bucket, totalBytes);
     return NextResponse.json({ totalBytes, totalObjects, maxBytes: bucket.maxBytes, byExtension });
   } catch (error: any) {
     console.error('Error reading bucket usage:', error);

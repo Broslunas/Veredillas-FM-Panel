@@ -3,6 +3,7 @@ import { isAuthorizedAdmin } from '@/lib/api-guard';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { resolveUploadDestination, getS3ClientForBucket, buildPublicUrl, getBucketUsage, R2UploadTarget } from '@/lib/r2';
+import { notifyUploadBlocked } from '@/lib/storage-alerts';
 
 export async function POST(request: Request) {
   try {
@@ -28,6 +29,7 @@ export async function POST(request: Request) {
     if (typeof fileSize === 'number') {
       const currentUsage = await getBucketUsage(bucket.bucketName);
       if (currentUsage.totalBytes + fileSize > bucket.maxBytes) {
+        await notifyUploadBlocked(bucket, fileSize, currentUsage.totalBytes, fileName);
         return NextResponse.json({ error: 'Límite de bucket alcanzado. No se puede subir este archivo.' }, { status: 400 });
       }
     }
