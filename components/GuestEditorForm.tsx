@@ -3,14 +3,26 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import R2Uploader from '@/components/R2Uploader';
-import { Save, ArrowLeft, Loader2, CheckCircle2 } from 'lucide-react';
+import { Save, ArrowLeft, Loader2, CheckCircle2, X } from 'lucide-react';
+import { GUEST_CREATED_MESSAGE_TYPE } from '@/lib/guestQuickCreate';
 
 interface GuestEditorProps {
   initialData?: any;
   isEdit?: boolean;
+  popup?: boolean;
 }
 
-export default function GuestEditorForm({ initialData, isEdit = false }: GuestEditorProps) {
+function slugify(val: string): string {
+  return val
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(new RegExp('[\\u0300-\\u036f]', 'g'), '')
+    .replace(/[^a-z0-9]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+export default function GuestEditorForm({ initialData, isEdit = false, popup = false }: GuestEditorProps) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -18,7 +30,7 @@ export default function GuestEditorForm({ initialData, isEdit = false }: GuestEd
 
   const [formData, setFormData] = useState({
     name: initialData?.name || '',
-    slug: initialData?.slug || '',
+    slug: initialData?.slug || (initialData?.name ? slugify(initialData.name) : ''),
     role: initialData?.role || '',
     image: initialData?.image || '',
     description: initialData?.description || '',
@@ -33,13 +45,7 @@ export default function GuestEditorForm({ initialData, isEdit = false }: GuestEd
   const handleNameChange = (val: string) => {
     const updated: any = { name: val };
     if (!isEdit && !formData.slug) {
-      updated.slug = val
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '');
+      updated.slug = slugify(val);
     }
     setFormData((prev) => ({ ...prev, ...updated }));
   };
@@ -64,9 +70,17 @@ export default function GuestEditorForm({ initialData, isEdit = false }: GuestEd
       if (!res.ok) throw new Error(data.error || 'Error al guardar el invitado');
 
       setSuccessMessage(isEdit ? 'Invitado actualizado con éxito' : 'Invitado creado con éxito');
-      setTimeout(() => {
-        router.push('/guests');
-      }, 1000);
+
+      if (popup) {
+        try {
+          window.opener?.postMessage({ type: GUEST_CREATED_MESSAGE_TYPE, guest: data }, window.location.origin);
+        } catch {}
+        setTimeout(() => window.close(), 800);
+      } else {
+        setTimeout(() => {
+          router.push('/guests');
+        }, 1000);
+      }
     } catch (err: any) {
       setErrorMessage(err.message || 'Error al guardar el invitado');
     } finally {
@@ -81,17 +95,22 @@ export default function GuestEditorForm({ initialData, isEdit = false }: GuestEd
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => router.push('/guests')}
+            onClick={() => (popup ? window.close() : router.push('/guests'))}
+            title={popup ? 'Cerrar ventana' : undefined}
             className="p-2 text-zinc-400 hover:text-zinc-100 bg-zinc-900 border border-zinc-800 rounded-lg transition"
           >
-            <ArrowLeft className="w-4 h-4" />
+            {popup ? <X className="w-4 h-4" /> : <ArrowLeft className="w-4 h-4" />}
           </button>
           <div>
             <h1 className="text-lg font-bold text-zinc-100">
-              {isEdit ? 'Editar Invitado' : 'Nuevo Invitado'}
+              {isEdit ? 'Editar Invitado' : popup ? 'Crear Invitado Rápido' : 'Nuevo Invitado'}
             </h1>
             <p className="text-xs text-zinc-400 font-mono">
-              {formData.slug ? `/invitados/${formData.slug}` : 'Perfil de participante'}
+              {popup
+                ? 'Esta ventana se cerrará automáticamente al guardar'
+                : formData.slug
+                ? `/invitados/${formData.slug}`
+                : 'Perfil de participante'}
             </p>
           </div>
         </div>

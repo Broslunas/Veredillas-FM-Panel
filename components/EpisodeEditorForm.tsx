@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import R2Uploader from '@/components/R2Uploader';
+import ParticipantsPicker from '@/components/ParticipantsPicker';
 import ClipYouTubeBatchUploader from '@/components/ClipYouTubeBatchUploader';
 import AudioExtractionProgress from '@/components/AudioExtractionProgress';
 import { uploadFileToR2ViaPresignedUrl } from '@/lib/r2-client';
@@ -1028,16 +1029,13 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
             <div>
               <div className="flex items-center justify-between gap-2 mb-1">
                 <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400">
-                  Participantes (separados por coma)
+                  Participantes
                 </label>
                 <AiFieldButton loading={fieldAiState.participants.loading} onClick={() => handleGenerateField('participants')} />
               </div>
-              <input
-                type="text"
+              <ParticipantsPicker
                 value={formData.participants}
-                onChange={(e) => setFormData({ ...formData, participants: e.target.value })}
-                placeholder="Saray, Antonieta"
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-zinc-500 transition"
+                onChange={(val) => setFormData({ ...formData, participants: val })}
               />
               <AiFieldHint message={fieldAiState.participants.error} />
             </div>
