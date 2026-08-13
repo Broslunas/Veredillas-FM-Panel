@@ -5,9 +5,11 @@
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+const GEMINI_TRANSLATE_MODEL = process.env.GEMINI_TRANSLATE_MODEL || 'gemini-3.5-live-translate';
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 interface GeminiGenerationOptions {
+  model?: string;
   temperature?: number;
   responseSchema?: Record<string, any>;
 }
@@ -16,6 +18,8 @@ async function callGemini(prompt: string, options: GeminiGenerationOptions = {})
   if (!GEMINI_API_KEY) {
     throw new Error('Falta configurar GEMINI_API_KEY en las variables de entorno');
   }
+
+  const model = options.model || GEMINI_MODEL;
 
   const generationConfig: Record<string, any> = {
     temperature: options.temperature ?? 0.9,
@@ -27,7 +31,7 @@ async function callGemini(prompt: string, options: GeminiGenerationOptions = {})
   }
 
   const res = await fetch(
-    `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    `${GEMINI_API_BASE}/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -421,7 +425,11 @@ ${numbered}
 
 Responde únicamente con el JSON solicitado: {"translations": ["...", ...]}`;
 
-  const text = await callGemini(prompt, { responseSchema: TRANSLATE_ARRAY_SCHEMA, temperature: 0.3 });
+  const text = await callGemini(prompt, {
+    model: GEMINI_TRANSLATE_MODEL,
+    responseSchema: TRANSLATE_ARRAY_SCHEMA,
+    temperature: 0.3,
+  });
   const parsed = JSON.parse(text);
   return Array.isArray(parsed.translations) ? parsed.translations.map((t: any) => String(t ?? '')) : [];
 }
