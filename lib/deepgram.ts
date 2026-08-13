@@ -131,9 +131,11 @@ export async function transcribeMedia(
 }
 
 /**
- * Segment transcript into short, clean subtitle-style chunks (max 6-8 words / punctuation breaks)
+ * Extract a flat, speaker-tagged word list from a Deepgram transcription response,
+ * preferring per-utterance words (each carrying the utterance's speaker) and falling
+ * back to the first channel/alternative's word list.
  */
-export function segmentIntoShortSubtitles(data: DeepgramResponse): ShortSubtitleSegment[] {
+export function extractDeepgramWords(data: DeepgramResponse): DeepgramWord[] {
   let words: DeepgramWord[] = [];
   const utterances = data.results?.utterances;
 
@@ -152,6 +154,15 @@ export function segmentIntoShortSubtitles(data: DeepgramResponse): ShortSubtitle
   if (words.length === 0) {
     words = data.results?.channels?.[0]?.alternatives?.[0]?.words || [];
   }
+
+  return words;
+}
+
+/**
+ * Segment transcript into short, clean subtitle-style chunks (max 6-8 words / punctuation breaks)
+ */
+export function segmentIntoShortSubtitles(data: DeepgramResponse): ShortSubtitleSegment[] {
+  const words = extractDeepgramWords(data);
 
   if (words.length === 0) {
     const rawText = data.results?.channels?.[0]?.alternatives?.[0]?.transcript || '';
@@ -320,4 +331,71 @@ export async function getDeepgramAdminStats() {
     models: models?.stt || models?.models || [],
     allModelsRaw: models,
   };
+}
+
+export interface AuraVoice {
+  name: string;
+  canonical_name: string;
+  languages: string[];
+  [key: string]: any;
+}
+
+/**
+ * Fetch the current catalog of Deepgram Aura (Speak/TTS) voices, keyed by their
+ * `canonical_name` (the value to pass as `model=` to /v1/speak) and the languages
+ * each voice supports. Used instead of hardcoding voice names, since the catalog
+ * changes over time.
+ */
+export async function listAuraVoices(): Promise<AuraVoice[]> {
+  const res = await fetch('https://api.deepgram.com/v1/models', {
+    headers: { Authorization: `Token ${DEEPGRAM_API_KEY}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Error al obtener modelos de Deepgram (${res.status})`);
+  }
+  const data = await res.json();
+  return data.tts || [];
+}
+
+/**
+ * Thrown when Deepgram Speak rejects a request because the text exceeds its
+ * per-request character limit, so callers can split the text and retry.
+ */
+export class DeepgramTextTooLongError extends Error {}
+
+/**
+ * Synthesize speech for `text` using an Aura voice, requesting raw linear16 WAV
+ * output so the exact PCM sample count/duration can be read directly from the
+ * response without decoding a compressed format.
+ */
+export async function synthesizeSpeechWav(
+  text: string,
+  voiceModel: string,
+  sampleRate: number = 24000
+): Promise<Buffer> {
+  const params = new URLSearchParams({
+    model: voiceModel,
+    encoding: 'linear16',
+    container: 'wav',
+    sample_rate: String(sampleRate),
+  });
+
+  const res = await fetch(`https://api.deepgram.com/v1/speak?${params.toString()}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Token ${DEEPGRAM_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ text }),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    if ((res.status === 400 || res.status === 413) && /character/i.test(errorText)) {
+      throw new DeepgramTextTooLongError(errorText);
+    }
+    throw new Error(`Deepgram Speak error (${res.status}): ${errorText}`);
+  }
+
+  return Buffer.from(await res.arrayBuffer());
 }

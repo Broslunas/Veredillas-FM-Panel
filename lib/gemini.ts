@@ -404,3 +404,57 @@ Responde únicamente con el JSON solicitado: {"value": [{"title": "...", "time":
       throw new Error('Campo no soportado para generación con IA.');
   }
 }
+
+const TRANSLATE_ARRAY_SCHEMA = {
+  type: 'object',
+  properties: { translations: { type: 'array', items: { type: 'string' } } },
+  required: ['translations'],
+};
+
+async function translateBatch(texts: string[], targetLangLabel: string): Promise<string[]> {
+  const numbered = texts.map((t, i) => `${i + 1}. ${t}`).join('\n');
+  const prompt = `Traduce cada una de las siguientes ${texts.length} líneas de español a ${targetLangLabel}.
+Es un guion de doblaje de un podcast: usa un registro natural y hablado, conciso, preservando el sentido y el tono de cada línea.
+No fusiones ni dividas líneas. Devuelve exactamente ${texts.length} traducciones, en el mismo orden que las líneas numeradas de entrada.
+
+${numbered}
+
+Responde únicamente con el JSON solicitado: {"translations": ["...", ...]}`;
+
+  const text = await callGemini(prompt, { responseSchema: TRANSLATE_ARRAY_SCHEMA, temperature: 0.3 });
+  const parsed = JSON.parse(text);
+  return Array.isArray(parsed.translations) ? parsed.translations.map((t: any) => String(t ?? '')) : [];
+}
+
+/**
+ * Translate a list of dubbing-block texts to `targetLangLabel`, preserving order and
+ * count exactly (each entry maps 1:1 to a timed audio segment downstream — a length
+ * mismatch would silently misalign every subsequent segment's timing). Batches to stay
+ * within a safe output size, retries a mismatched batch once, then falls back to
+ * translating one-by-one for that batch as a last resort.
+ */
+export async function translateDubSegments(texts: string[], targetLangLabel: string): Promise<string[]> {
+  const BATCH_SIZE = 25;
+  const out: string[] = [];
+
+  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+    const chunk = texts.slice(i, i + BATCH_SIZE);
+    let translated = await translateBatch(chunk, targetLangLabel);
+
+    if (translated.length !== chunk.length) {
+      translated = await translateBatch(chunk, targetLangLabel);
+    }
+
+    if (translated.length !== chunk.length) {
+      translated = [];
+      for (const single of chunk) {
+        const result = await translateBatch([single], targetLangLabel);
+        translated.push(result[0] || single);
+      }
+    }
+
+    out.push(...translated);
+  }
+
+  return out;
+}

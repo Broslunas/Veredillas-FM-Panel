@@ -6,6 +6,7 @@ import R2Uploader from '@/components/R2Uploader';
 import ParticipantsPicker from '@/components/ParticipantsPicker';
 import ClipYouTubeBatchUploader from '@/components/ClipYouTubeBatchUploader';
 import AudioExtractionProgress from '@/components/AudioExtractionProgress';
+import DubbingManager from '@/components/DubbingManager';
 import { uploadFileToR2ViaPresignedUrl } from '@/lib/r2-client';
 import { ExtractionProgress, extractMp3FromVideoFile, extractMp3FromVideoUrl } from '@/lib/audio-extraction';
 import { useAutoSaveDraft } from '@/lib/useAutoSaveDraft';
@@ -33,6 +34,7 @@ import {
   ChevronRight,
   UserCheck,
   AlertCircle,
+  Languages,
 } from 'lucide-react';
 
 const CHAPTER_TIME_REGEX = /^(\d{1,2}:)?\d{1,2}:\d{2}$/;
@@ -100,7 +102,7 @@ interface EpisodeEditorProps {
   isEdit?: boolean;
 }
 
-type TabType = 'general' | 'media' | 'sections' | 'transcript' | 'clips_quiz';
+type TabType = 'general' | 'media' | 'sections' | 'transcript' | 'clips_quiz' | 'dubbing';
 const VALID_TABS: TabType[] = ['general', 'media', 'sections', 'transcript', 'clips_quiz'];
 
 interface AudioExtractionUiState {
@@ -888,6 +890,19 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
         >
           <Video className="w-4 h-4" />
           <span>5. Clips & Quiz</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => changeTab('dubbing')}
+          className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-2 border-b-2 whitespace-nowrap ${
+            activeTab === 'dubbing'
+              ? 'border-indigo-500 text-indigo-400 bg-zinc-900/60'
+              : 'border-transparent text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          <Languages className="w-4 h-4" />
+          <span>6. Doblaje</span>
         </button>
       </div>
 
@@ -1871,6 +1886,24 @@ export default function EpisodeEditorForm({ initialData, isEdit = false }: Episo
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* TAB 6: DOBLAJE */}
+      {activeTab === 'dubbing' && (
+        <div className="space-y-6">
+          {isEdit && initialData?._id && (formData.audioUrl || formData.videoUrl) ? (
+            <DubbingManager
+              episodeId={initialData._id}
+              episodeSlug={formData.slug}
+              sourceUrl={formData.audioUrl || formData.videoUrl}
+              initialDubs={initialData?.dubs || []}
+            />
+          ) : (
+            <p className="text-xs text-zinc-500">
+              Guarda el episodio con un audio o vídeo asociado para poder generar un doblaje.
+            </p>
+          )}
         </div>
       )}
     </form>

@@ -24,6 +24,40 @@ export interface IQuizItem {
   correctAnswer: number;
 }
 
+export interface IDubSegment {
+  index: number;
+  start: number;
+  end: number;
+  speaker?: number;
+  text: string;
+  translatedText?: string;
+  status: 'pending' | 'translated' | 'synthesized' | 'error';
+  tempKey?: string;
+  durationSeconds?: number;
+  actualStart?: number;
+  actualEnd?: number;
+  error?: string;
+}
+
+export interface IDubTrack {
+  lang: string;
+  label: string;
+  status: 'segmenting' | 'awaiting_voices' | 'translating' | 'synthesizing' | 'finalizing' | 'ready' | 'error';
+  progress: number;
+  sourceDuration?: number;
+  segments: IDubSegment[];
+  voiceMap: Record<string, string>;
+  speakerNames?: Record<string, string>;
+  maxDriftSeconds?: number;
+  url?: string;
+  bucket?: string;
+  key?: string;
+  duration?: number;
+  error?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface IEpisodeContent {
   _id: mongoose.Types.ObjectId;
   slug: string;
@@ -46,6 +80,7 @@ export interface IEpisodeContent {
   warningMessage?: string;
   clips?: IClipItem[];
   quiz?: IQuizItem[];
+  dubs?: IDubTrack[];
   body: string;
   status: 'draft' | 'published';
   deletedAt?: Date | null;
@@ -99,6 +134,64 @@ const EpisodeContentSchema = new Schema<IEpisodeContent>(
         correctAnswer: { type: Number, required: true },
       },
     ],
+    dubs: {
+      type: [
+        new Schema<IDubTrack>(
+          {
+            lang: { type: String, required: true },
+            label: { type: String, required: true },
+            status: {
+              type: String,
+              enum: ['segmenting', 'awaiting_voices', 'translating', 'synthesizing', 'finalizing', 'ready', 'error'],
+              default: 'segmenting',
+            },
+            progress: { type: Number, default: 0 },
+            sourceDuration: { type: Number },
+            segments: {
+              type: [
+                new Schema<IDubSegment>(
+                  {
+                    index: { type: Number, required: true },
+                    start: { type: Number, required: true },
+                    end: { type: Number, required: true },
+                    speaker: { type: Number },
+                    text: { type: String, required: true },
+                    translatedText: { type: String },
+                    status: {
+                      type: String,
+                      enum: ['pending', 'translated', 'synthesized', 'error'],
+                      default: 'pending',
+                    },
+                    tempKey: { type: String },
+                    durationSeconds: { type: Number },
+                    actualStart: { type: Number },
+                    actualEnd: { type: Number },
+                    error: { type: String },
+                  },
+                  { _id: false }
+                ),
+              ],
+              default: [],
+            },
+            voiceMap: { type: Schema.Types.Mixed, default: {} },
+            speakerNames: { type: Schema.Types.Mixed, default: {} },
+            maxDriftSeconds: { type: Number },
+            url: { type: String },
+            bucket: { type: String },
+            key: { type: String },
+            duration: { type: Number },
+            error: { type: String },
+          },
+          // No schema-level timestamps: createdAt/updatedAt are set manually by the
+          // dubbing routes. Mongoose's timestamps plugin on a subdocument schema
+          // conflicts with saveTrack()'s `{ $set: { 'dubs.$': track } }` update (it
+          // tries to also touch 'dubs.$.updatedAt' as a separate path, which Mongo
+          // rejects as a conflicting update).
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
     body: { type: String, default: '' },
     status: { type: String, enum: ['draft', 'published'], default: 'published' },
     deletedAt: { type: Date, default: null, index: true },
