@@ -291,6 +291,24 @@ export default function DubbingManager({ episodeId, episodeSlug, sourceUrl, init
     continuePipeline(t.lang);
   }
 
+  // Re-runs just the assembly step for an already-finished track (e.g. after a
+  // sync/timing fix) without redoing transcription/translation/synthesis — cheap
+  // because the per-segment synthesized WAVs are kept around after finalize.
+  async function handleRefinalize(lang: string) {
+    setBusyLang(lang);
+    setProgress({ stage: 'finalizing', percent: null, detail: 'Reensamblando y subiendo el audio final…' });
+    try {
+      const finalRes = await postJson('/api/admin/dubbing/finalize', { episodeId, lang });
+      upsertTrack({ lang, status: 'ready', progress: 100, url: finalRes.url, maxDriftSeconds: finalRes.maxDriftSeconds });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Error al reensamblar el doblaje';
+      alert(message);
+    } finally {
+      setProgress(null);
+      setBusyLang(null);
+    }
+  }
+
   async function handleDelete(lang: string) {
     if (!confirm(`¿Eliminar la pista de doblaje en "${labelForLang(lang)}"?`)) return;
     try {
@@ -447,6 +465,18 @@ export default function DubbingManager({ episodeId, episodeSlug, sourceUrl, init
                     >
                       <PlayCircle className="w-4 h-4" />
                     </a>
+                  )}
+
+                  {t.status === 'ready' && (
+                    <button
+                      type="button"
+                      onClick={() => handleRefinalize(t.lang)}
+                      disabled={Boolean(busyLang)}
+                      className="p-1 text-indigo-400 hover:text-indigo-300 transition disabled:opacity-50"
+                      title="Reensamblar (ajustar sincronización sin resintetizar)"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                    </button>
                   )}
 
                   {t.status !== 'ready' && busyLang !== t.lang && !(pendingVoiceSelection?.lang === t.lang) && (

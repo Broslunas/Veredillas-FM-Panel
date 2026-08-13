@@ -3,7 +3,7 @@ import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { isAuthorizedAdmin } from '@/lib/api-guard';
 import dbConnect from '@/lib/mongodb';
 import EpisodeContent from '@/models/EpisodeContent';
-import { getBucketByType, getS3ClientForBucket, uploadFileToR2, deleteR2Prefix } from '@/lib/r2';
+import { getBucketByType, getS3ClientForBucket, uploadFileToR2 } from '@/lib/r2';
 import { parseWav, createDubTimelinePlacer, encodeMonoPcmToMp3, DEFAULT_DUB_SAMPLE_RATE } from '@/lib/dubbing/audio';
 import { getEpisodeWithTrack, saveTrack } from '@/lib/dubbing/store';
 
@@ -53,13 +53,15 @@ export async function POST(request: Request) {
       track.sourceDuration || synthesized[synthesized.length - 1].end + 5;
     const placer = createDubTimelinePlacer(DEFAULT_DUB_SAMPLE_RATE, totalDuration);
 
-    for (const segment of synthesized) {
+    for (let i = 0; i < synthesized.length; i++) {
+      const segment = synthesized[i];
+      const next = synthesized[i + 1];
       const response = await client.send(
         new GetObjectCommand({ Bucket: bucket.bucketName, Key: segment.tempKey! })
       );
       const bytes = await (response.Body as any).transformToByteArray();
       const parsed = parseWav(Buffer.from(bytes));
-      placer.place(segment.index, segment.start, parsed.samples);
+      placer.place(segment.index, segment.start, parsed.samples, next?.start);
     }
 
     const { pcm, maxDriftSeconds, placements } = placer.finish();
@@ -73,7 +75,10 @@ export async function POST(request: Request) {
 
     const uploaded = await uploadFileToR2(mp3Buffer, `${baseName}.mp3`, 'audio/mpeg', 'audios/dubs', 'audio', baseName);
 
-    await deleteR2Prefix(bucket.bucketName, `dubs-tmp/${episodeId}/${lang}/`);
+    // Deliberately NOT deleting `dubs-tmp/{episodeId}/{lang}/` here: keeping the per-segment
+    // WAVs around lets /finalize be re-run cheaply (e.g. to retune timeline placement) without
+    // re-transcribing/re-translating/re-synthesizing. They're cleaned up when the track itself
+    // is deleted (see the DELETE handler in ../route.ts).
 
     track.segments = track.segments.map((s) => {
       const placement = placementByIndex.get(s.index);
