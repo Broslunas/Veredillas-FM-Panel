@@ -3,6 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Languages, Trash2, RefreshCw, CheckCircle2, AlertCircle, Loader2, PlayCircle, Mic2 } from 'lucide-react';
 import DubbingProgress, { type DubbingProgressSnapshot } from '@/components/DubbingProgress';
+import { createDubTimelinePlacer, DEFAULT_DUB_SAMPLE_RATE } from '@/lib/dubbing/timeline';
+import { parseWavArrayBuffer } from '@/lib/dubbing/wav-browser';
+import { encodePcmToMp3 } from '@/lib/audio-extraction';
+import { uploadFileToR2ViaPresignedUrl } from '@/lib/r2-client';
 
 interface DubbingManagerProps {
   episodeId: string;
@@ -183,6 +187,81 @@ export default function DubbingManager({ episodeId, episodeSlug, sourceUrl, init
     );
   }
 
+  // Assembles the final dubbed track entirely in the browser: downloads every
+  // synthesized segment, places them on the timeline (with sync-drift compensation),
+  // encodes the result to MP3, and uploads it straight to R2 via a presigned URL.
+  // Keeping this client-side means the Vercel function behind it only ever handles
+  // small JSON payloads — no per-episode memory limit to raise, no request body to
+  // hit Vercel's size ceiling on.
+  async function assembleAndUploadDub(lang: string): Promise<{ url: string; maxDriftSeconds: number }> {
+    const prep = await postJson('/api/admin/dubbing/finalize', { episodeId, lang });
+    const segments: { index: number; start: number; url: string }[] = prep.segments;
+    const sourceDuration: number = prep.sourceDuration;
+
+    const buffers: (ArrayBuffer | null)[] = new Array(segments.length).fill(null);
+    let downloaded = 0;
+    let nextToFetch = 0;
+    const concurrency = 8;
+
+    async function downloadWorker() {
+      for (;;) {
+        const i = nextToFetch++;
+        if (i >= segments.length) return;
+        const res = await fetch(segments[i].url);
+        if (!res.ok) throw new Error(`No se pudo descargar el segmento ${segments[i].index}`);
+        buffers[i] = await res.arrayBuffer();
+        downloaded++;
+        setProgress({
+          stage: 'finalizing',
+          percent: Math.round((downloaded / segments.length) * 40),
+          detail: `Descargando segmentos sintetizados… (${downloaded}/${segments.length})`,
+        });
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(concurrency, segments.length) }, downloadWorker));
+
+    const placer = createDubTimelinePlacer(DEFAULT_DUB_SAMPLE_RATE, sourceDuration);
+    for (let i = 0; i < segments.length; i++) {
+      const parsed = parseWavArrayBuffer(buffers[i]!);
+      placer.place(segments[i].index, segments[i].start, parsed.samples, segments[i + 1]?.start);
+    }
+    const { pcm, maxDriftSeconds, placements } = placer.finish();
+
+    const floatPcm = new Float32Array(pcm.length);
+    for (let i = 0; i < pcm.length; i++) floatPcm[i] = pcm[i] / 32768;
+
+    const mp3Blob = await encodePcmToMp3({ left: floatPcm, sampleRate: DEFAULT_DUB_SAMPLE_RATE }, (percent) => {
+      setProgress({
+        stage: 'finalizing',
+        percent: 40 + Math.round(percent * 0.4),
+        detail: `Codificando el audio final a MP3… ${percent}%`,
+      });
+    });
+
+    const baseName = `${episodeSlug}-dub-${lang}`;
+    const mp3File = new File([mp3Blob], `${baseName}.mp3`, { type: 'audio/mpeg' });
+    const publicUrl = await uploadFileToR2ViaPresignedUrl(mp3File, {
+      folder: 'audios/dubs',
+      target: 'audio',
+      entityId: baseName,
+      onProgress: (percent) => {
+        setProgress({ stage: 'finalizing', percent: 80 + Math.round(percent * 0.2), detail: `Subiendo el audio final… ${percent}%` });
+      },
+    });
+
+    const duration = pcm.length / DEFAULT_DUB_SAMPLE_RATE;
+    await postJson('/api/admin/dubbing/finalize-complete', {
+      episodeId,
+      lang,
+      url: publicUrl,
+      duration,
+      maxDriftSeconds,
+      placements,
+    });
+
+    return { url: publicUrl, maxDriftSeconds };
+  }
+
   async function continuePipeline(lang: string) {
     setBusyLang(lang);
     try {
@@ -209,8 +288,8 @@ export default function DubbingManager({ episodeId, episodeSlug, sourceUrl, init
         if (res.done) break;
       }
 
-      setProgress({ stage: 'finalizing', percent: null, detail: 'Ensamblando y subiendo el audio final…' });
-      const finalRes = await postJson('/api/admin/dubbing/finalize', { episodeId, lang });
+      setProgress({ stage: 'finalizing', percent: 0, detail: 'Ensamblando y subiendo el audio final…' });
+      const finalRes = await assembleAndUploadDub(lang);
       upsertTrack({ lang, status: 'ready', progress: 100, url: finalRes.url, maxDriftSeconds: finalRes.maxDriftSeconds });
       setProgress(null);
     } catch (err) {
@@ -296,9 +375,9 @@ export default function DubbingManager({ episodeId, episodeSlug, sourceUrl, init
   // because the per-segment synthesized WAVs are kept around after finalize.
   async function handleRefinalize(lang: string) {
     setBusyLang(lang);
-    setProgress({ stage: 'finalizing', percent: null, detail: 'Reensamblando y subiendo el audio final…' });
+    setProgress({ stage: 'finalizing', percent: 0, detail: 'Reensamblando y subiendo el audio final…' });
     try {
-      const finalRes = await postJson('/api/admin/dubbing/finalize', { episodeId, lang });
+      const finalRes = await assembleAndUploadDub(lang);
       upsertTrack({ lang, status: 'ready', progress: 100, url: finalRes.url, maxDriftSeconds: finalRes.maxDriftSeconds });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Error al reensamblar el doblaje';

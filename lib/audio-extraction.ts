@@ -67,10 +67,15 @@ async function fetchArrayBufferWithProgress(
   return merged.buffer;
 }
 
-// Runs the actual MP3 encoding (CPU-heavy, pure JS) off the main thread so the
-// tab doesn't freeze/"page unresponsive" while processing a long episode.
-function encodeAudioBufferToMp3(
-  buffer: AudioBuffer,
+/**
+ * Runs the actual MP3 encoding (CPU-heavy, pure JS) off the main thread so the tab
+ * doesn't freeze/"page unresponsive" while processing a long episode. Takes raw
+ * Float32 PCM directly (not tied to an `AudioBuffer`) so callers that build PCM by
+ * hand — e.g. the dubbing timeline assembly in components/DubbingManager.tsx — can
+ * reuse the same worker instead of duplicating this plumbing.
+ */
+export function encodePcmToMp3(
+  pcm: { left: Float32Array; right?: Float32Array | null; sampleRate: number },
   onProgress: (percent: number, etaSeconds: number | null) => void,
   kbps = 128
 ): Promise<Blob> {
@@ -105,12 +110,28 @@ function encodeAudioBufferToMp3(
 
     // Copy the channel data so its buffer can be transferred (zero-copy) to
     // the worker instead of structured-cloned.
-    const left = buffer.getChannelData(0).slice();
-    const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1).slice() : null;
+    const left = pcm.left.slice();
+    const right = pcm.right ? pcm.right.slice() : null;
     const transfer = right ? [left.buffer, right.buffer] : [left.buffer];
 
-    worker.postMessage({ left, right, sampleRate: buffer.sampleRate, kbps }, transfer);
+    worker.postMessage({ left, right, sampleRate: pcm.sampleRate, kbps }, transfer);
   });
+}
+
+function encodeAudioBufferToMp3(
+  buffer: AudioBuffer,
+  onProgress: (percent: number, etaSeconds: number | null) => void,
+  kbps = 128
+): Promise<Blob> {
+  return encodePcmToMp3(
+    {
+      left: buffer.getChannelData(0),
+      right: buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null,
+      sampleRate: buffer.sampleRate,
+    },
+    onProgress,
+    kbps
+  );
 }
 
 async function videoArrayBufferToMp3(
