@@ -3,7 +3,7 @@
 // timeline stays in sync instead of accumulating drift.
 //
 // Run: node --experimental-strip-types scripts/verify-dub-sync.mjs
-import { assembleDubTimeline, DEFAULT_DUB_SAMPLE_RATE } from '../lib/dubbing/timeline.ts';
+import { assembleDubTimeline, timeCompress, DEFAULT_DUB_SAMPLE_RATE } from '../lib/dubbing/timeline.ts';
 
 const SR = DEFAULT_DUB_SAMPLE_RATE;
 const LIMIT = 1.05; // MAX_LATE_SECONDS (1.0) + rounding slack
@@ -65,3 +65,59 @@ if (results.some((r) => !r)) {
   process.exit(1);
 }
 console.log('\nOK: el desfase se mantiene acotado en todos los escenarios.');
+
+/* ------------------------------------------------------------------ */
+/* Audio quality: robotic artifacts show up as amplitude ripple where   */
+/* grains are spliced. On a steady vowel the envelope should stay flat. */
+/* ------------------------------------------------------------------ */
+
+// Vowel-like: a fundamental plus harmonics, steady amplitude.
+function vowel(seconds, f0 = 120) {
+  const n = Math.round(seconds * SR);
+  const s = new Int16Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = i / SR;
+    const v =
+      Math.sin(2 * Math.PI * f0 * t) +
+      0.5 * Math.sin(2 * Math.PI * 2 * f0 * t) +
+      0.3 * Math.sin(2 * Math.PI * 3 * f0 * t);
+    s[i] = Math.round(6000 * v);
+  }
+  return s;
+}
+
+// Coefficient of variation of the short-term RMS envelope: 0 = perfectly steady,
+// higher = the pumping/metallic modulation that reads as "robotic".
+function envelopeRipple(samples) {
+  const win = Math.round(0.01 * SR);
+  const rms = [];
+  for (let i = win; i + win <= samples.length - win; i += win) {
+    let sum = 0;
+    for (let k = 0; k < win; k++) sum += samples[i + k] * samples[i + k];
+    rms.push(Math.sqrt(sum / win));
+  }
+  const mean = rms.reduce((a, b) => a + b, 0) / rms.length;
+  const variance = rms.reduce((a, b) => a + (b - mean) ** 2, 0) / rms.length;
+  return Math.sqrt(variance) / mean;
+}
+
+console.log('\nCalidad de la compresión (ondulación de amplitud, menor = más natural):');
+const source = vowel(3);
+console.log(`  sin comprimir (referencia)      ${envelopeRipple(source).toFixed(3)}`);
+let qualityOk = true;
+for (const factor of [1.2, 1.4, 1.6]) {
+  const ripple = envelopeRipple(timeCompress(source, factor, SR));
+  const ok = ripple < 0.1;
+  if (!ok) qualityOk = false;
+  console.log(`  WSOLA ${factor.toFixed(1)}x${' '.repeat(20)} ${ripple.toFixed(3)}  ${ok ? '' : '<-- artefactos audibles'}`);
+}
+
+const t0 = Date.now();
+timeCompress(vowel(60), 1.4, SR);
+console.log(`\nRendimiento: 60 s de audio comprimidos en ${Date.now() - t0} ms`);
+
+if (!qualityOk) {
+  console.error('\nFALLO: la compresión introduce demasiada ondulación (sonaría robótico).');
+  process.exit(1);
+}
+console.log('OK: la compresión mantiene la envolvente estable.');

@@ -61,21 +61,57 @@ function clampInt16(value: number): number {
 }
 
 /**
- * Time-compress mono PCM by `factor` (>1) using overlap-add (OLA) with a Hann window.
+ * Trim near-silence from both ends of a synthesized segment.
  *
- * Unlike plain resampling (which is what this used to do), OLA keeps the PITCH intact
- * — it drops overlapping grains of audio rather than replaying everything faster. That
- * is what makes a meaningful compression range usable: a 1.5x resampled voice sounds
- * cartoonish, whereas 1.5x OLA just sounds like someone talking briskly.
+ * Aura pads its output with a little silence, which is dead weight inside the segment's
+ * time slot. Reclaiming it is free, artifact-free compression: every millisecond removed
+ * here is a millisecond `timeCompress` doesn't have to squeeze out of actual speech.
+ */
+export function trimSilence(samples: Int16Array, sampleRate: number): Int16Array {
+  if (samples.length === 0) return samples;
+
+  let peak = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const magnitude = samples[i] < 0 ? -samples[i] : samples[i];
+    if (magnitude > peak) peak = magnitude;
+  }
+  if (peak === 0) return samples;
+
+  const threshold = Math.max(48, peak * 0.02);
+  let start = 0;
+  let end = samples.length - 1;
+  while (start < samples.length && Math.abs(samples[start]) < threshold) start++;
+  while (end > start && Math.abs(samples[end]) < threshold) end--;
+  if (start >= end) return samples;
+
+  // Leave a short cushion so words don't sound clipped at the edges.
+  const pad = Math.round(0.03 * sampleRate);
+  start = Math.max(0, start - pad);
+  end = Math.min(samples.length - 1, end + pad);
+  return start === 0 && end === samples.length - 1 ? samples : samples.subarray(start, end + 1);
+}
+
+/**
+ * Time-compress mono PCM by `factor` (>1) using WSOLA
+ * (Waveform Similarity Overlap-Add), preserving pitch.
+ *
+ * Plain overlap-add — which this used to do — splices grains at arbitrary points in the
+ * waveform, so successive grains fight each other's phase and the voice takes on the
+ * classic metallic/robotic timbre. WSOLA first searches a small neighbourhood for the
+ * grain that best matches the natural continuation of what was already written, so the
+ * splices land on similar waveform shapes and the result stays smooth and natural.
  */
 export function timeCompress(samples: Int16Array, factor: number, sampleRate: number): Int16Array {
-  if (factor <= 1.0001 || samples.length === 0) return samples;
+  // Below ~3% the saving is inaudible and not worth any processing artifacts at all.
+  if (factor <= 1.03 || samples.length === 0) return samples;
 
-  const frameSize = Math.max(2, Math.round(0.04 * sampleRate)); // 40 ms grains
-  if (samples.length <= frameSize) return samples;
+  const frameSize = Math.max(4, Math.round(0.03 * sampleRate)); // 30 ms grains
+  if (samples.length <= frameSize * 2) return samples;
 
-  const synthesisHop = Math.round(frameSize / 2); // 50% overlap
-  const analysisHop = Math.max(1, Math.round(synthesisHop * factor));
+  const hop = frameSize >> 1; // 50% overlap
+  const analysisHop = Math.max(1, Math.round(hop * factor));
+  const searchRadius = Math.round(0.005 * sampleRate); // ±5 ms of wiggle room
+  const stride = 4; // decimate the similarity search; plenty for speech, 4x cheaper
 
   const window = new Float32Array(frameSize);
   for (let i = 0; i < frameSize; i++) {
@@ -85,17 +121,49 @@ export function timeCompress(samples: Int16Array, factor: number, sampleRate: nu
   const capacity = Math.ceil(samples.length / factor) + frameSize * 2;
   const acc = new Float32Array(capacity);
   const norm = new Float32Array(capacity);
+  const lastGrainStart = samples.length - frameSize;
 
   let inPos = 0;
   let outPos = 0;
-  while (inPos + frameSize <= samples.length && outPos + frameSize <= capacity) {
+  let templatePos = -1; // where the previous grain's natural continuation begins
+
+  while (outPos + frameSize <= capacity) {
+    let grainStart = Math.min(inPos, lastGrainStart);
+
+    if (templatePos >= 0 && templatePos + hop <= samples.length) {
+      const lo = Math.max(0, Math.min(inPos - searchRadius, lastGrainStart));
+      const hi = Math.min(lastGrainStart, inPos + searchRadius);
+      let bestScore = -Infinity;
+      for (let candidate = lo; candidate <= hi; candidate++) {
+        let dot = 0;
+        let energy = 0;
+        for (let k = 0; k < hop; k += stride) {
+          const a = samples[candidate + k];
+          dot += a * samples[templatePos + k];
+          energy += a * a;
+        }
+        // Normalised correlation — otherwise the search just drifts toward whichever
+        // offset happens to be loudest rather than the one that actually matches.
+        const score = dot / Math.sqrt(energy + 1e-6);
+        if (score > bestScore) {
+          bestScore = score;
+          grainStart = candidate;
+        }
+      }
+    }
+
+    if (grainStart < 0 || grainStart + frameSize > samples.length) break;
+
     for (let i = 0; i < frameSize; i++) {
       const w = window[i];
-      acc[outPos + i] += samples[inPos + i] * w;
+      acc[outPos + i] += samples[grainStart + i] * w;
       norm[outPos + i] += w;
     }
-    inPos += analysisHop;
-    outPos += synthesisHop;
+
+    templatePos = grainStart + hop;
+    outPos += hop;
+    inPos = grainStart + analysisHop;
+    if (inPos + frameSize > samples.length) break;
   }
 
   const outLength = Math.min(capacity, outPos + frameSize);
@@ -133,7 +201,11 @@ export function assembleDubTimeline(
   sampleRate: number,
   initialDurationSeconds: number
 ): DubAssemblyResult {
-  const ordered = [...segments].sort((a, b) => a.start - b.start || a.index - b.index);
+  const ordered = [...segments]
+    .sort((a, b) => a.start - b.start || a.index - b.index)
+    // Reclaim Aura's padding first — free headroom that reduces (often removes) the
+    // need to time-compress the speech itself further down.
+    .map((s) => ({ ...s, samples: trimSilence(s.samples, sampleRate) }));
 
   let pcm = new Int16Array(Math.ceil(Math.max(initialDurationSeconds, 1) * 1.05 * sampleRate));
   const placements: DubPlacement[] = [];
