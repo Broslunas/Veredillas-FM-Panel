@@ -28,6 +28,7 @@ import {
   Cpu,
   Trash2,
   CalendarDays,
+  Images,
 } from 'lucide-react';
 import CommandPalette from '@/components/dashboard/CommandPalette';
 
@@ -149,6 +150,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       items: [
         { label: 'Episodios', href: '/episodes', icon: Radio },
         { label: 'Blog', href: '/blog', icon: FileText },
+        { label: 'Galería', href: '/gallery', icon: Images },
         { label: 'YouTube Studio', href: '/youtube', icon: YoutubeIcon },
         { label: 'Highlights Studio', href: '/social-clips', icon: Video },
         { label: 'Social Publisher', href: '/buffer', icon: Share2 },
