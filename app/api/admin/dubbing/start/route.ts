@@ -82,7 +82,10 @@ export async function POST(request: Request) {
       label,
       status: 'awaiting_voices' as const,
       progress: 0,
-      sourceDuration: transcript.metadata?.duration || blocks[blocks.length - 1].end,
+      // Max end rather than the last block's end: with overlapping speakers Deepgram
+      // returns utterances out of chronological order, so the last block isn't
+      // necessarily the one that finishes latest.
+      sourceDuration: transcript.metadata?.duration || Math.max(...blocks.map((b) => b.end)),
       segments: blocks.map((b) => ({
         index: b.index,
         start: b.start,

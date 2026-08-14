@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Languages, Trash2, RefreshCw, CheckCircle2, AlertCircle, Loader2, PlayCircle, Mic2 } from 'lucide-react';
 import DubbingProgress, { type DubbingProgressSnapshot } from '@/components/DubbingProgress';
-import { createDubTimelinePlacer, DEFAULT_DUB_SAMPLE_RATE } from '@/lib/dubbing/timeline';
+import { assembleDubTimeline, DEFAULT_DUB_SAMPLE_RATE } from '@/lib/dubbing/timeline';
 import { parseWavArrayBuffer } from '@/lib/dubbing/wav-browser';
 import { encodePcmToMp3 } from '@/lib/audio-extraction';
 import { uploadFileToR2ViaPresignedUrl } from '@/lib/r2-client';
@@ -220,12 +220,16 @@ export default function DubbingManager({ episodeId, episodeSlug, sourceUrl, init
     }
     await Promise.all(Array.from({ length: Math.min(concurrency, segments.length) }, downloadWorker));
 
-    const placer = createDubTimelinePlacer(DEFAULT_DUB_SAMPLE_RATE, sourceDuration);
-    for (let i = 0; i < segments.length; i++) {
-      const parsed = parseWavArrayBuffer(buffers[i]!);
-      placer.place(segments[i].index, segments[i].start, parsed.samples, segments[i + 1]?.start);
-    }
-    const { pcm, maxDriftSeconds, placements } = placer.finish();
+    setProgress({ stage: 'finalizing', percent: 40, detail: 'Ajustando la sincronización de los segmentos…' });
+    const { pcm, maxDriftSeconds, placements } = assembleDubTimeline(
+      segments.map((s, i) => ({
+        index: s.index,
+        start: s.start,
+        samples: parseWavArrayBuffer(buffers[i]!).samples,
+      })),
+      DEFAULT_DUB_SAMPLE_RATE,
+      sourceDuration
+    );
 
     const floatPcm = new Float32Array(pcm.length);
     for (let i = 0; i < pcm.length; i++) floatPcm[i] = pcm[i] / 32768;

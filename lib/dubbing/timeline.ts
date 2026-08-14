@@ -20,106 +20,188 @@ export interface DubPlacement {
   actualEnd: number;
 }
 
-export interface DubTimelinePlacer {
-  /**
-   * `nextOriginalStartSeconds` — the ORIGINAL start time of the block that will be
-   * placed right after this one (or undefined for the last block). Used to speed up
-   * this segment's audio when it would otherwise run past that point, so it doesn't
-   * push every later line later too.
-   */
-  place(index: number, originalStartSeconds: number, samples: Int16Array, nextOriginalStartSeconds?: number): void;
-  finish(): { pcm: Int16Array; maxDriftSeconds: number; maxSpeedFactor: number; placements: DubPlacement[] };
+export interface DubSegmentInput {
+  index: number;
+  /** ORIGINAL start time in the source media, in seconds. */
+  start: number;
+  samples: Int16Array;
+}
+
+export interface DubAssemblyResult {
+  pcm: Int16Array;
+  /** Worst single-segment lateness vs. its original timestamp. Bounded by MAX_LATE_SECONDS. */
+  maxDriftSeconds: number;
+  maxSpeedFactor: number;
+  placements: DubPlacement[];
 }
 
 const MIN_GAP_SECONDS = 0.05;
 
-// How much a segment's synthesized audio may be sped up (via resampling) to fit
-// within its original time slot. Kept modest so voices don't distort noticeably —
-// beyond this, a little residual drift is preferable to unintelligible audio.
-const MAX_SPEED_FACTOR = 1.35;
+/**
+ * Hard ceiling on how late any single segment may start relative to its ORIGINAL
+ * timestamp. This is the property that actually keeps the dub in sync: drift is
+ * clamped per-segment instead of being carried forward, so it can never compound
+ * across an episode (the previous implementation pushed each segment past the end
+ * of the last one with no ceiling, which is how a long podcast ended up minutes
+ * out of sync by the end).
+ */
+const MAX_LATE_SECONDS = 1.0;
 
 /**
- * Speeds up mono PCM by `factor` (>1) using linear-interpolation resampling — the
- * same technique as playing audio at a faster rate. This does shift pitch slightly,
- * but for the modest factors this is capped to it stays intelligible, and it keeps
- * the implementation dependency-free (no ffmpeg / native binary involved).
+ * How much a segment may be time-compressed to fit its slot. Higher than a naive
+ * resampling cap would allow because `timeCompress` below preserves pitch, so the
+ * voice speeds up without turning chipmunky.
  */
-export function speedUpPcm(samples: Int16Array, factor: number): Int16Array {
-  if (factor <= 1 || samples.length === 0) return samples;
-  const outLength = Math.max(1, Math.round(samples.length / factor));
+const MAX_SPEED_FACTOR = 1.6;
+
+function clampInt16(value: number): number {
+  if (value > 32767) return 32767;
+  if (value < -32768) return -32768;
+  return value | 0;
+}
+
+/**
+ * Time-compress mono PCM by `factor` (>1) using overlap-add (OLA) with a Hann window.
+ *
+ * Unlike plain resampling (which is what this used to do), OLA keeps the PITCH intact
+ * — it drops overlapping grains of audio rather than replaying everything faster. That
+ * is what makes a meaningful compression range usable: a 1.5x resampled voice sounds
+ * cartoonish, whereas 1.5x OLA just sounds like someone talking briskly.
+ */
+export function timeCompress(samples: Int16Array, factor: number, sampleRate: number): Int16Array {
+  if (factor <= 1.0001 || samples.length === 0) return samples;
+
+  const frameSize = Math.max(2, Math.round(0.04 * sampleRate)); // 40 ms grains
+  if (samples.length <= frameSize) return samples;
+
+  const synthesisHop = Math.round(frameSize / 2); // 50% overlap
+  const analysisHop = Math.max(1, Math.round(synthesisHop * factor));
+
+  const window = new Float32Array(frameSize);
+  for (let i = 0; i < frameSize; i++) {
+    window[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (frameSize - 1));
+  }
+
+  const capacity = Math.ceil(samples.length / factor) + frameSize * 2;
+  const acc = new Float32Array(capacity);
+  const norm = new Float32Array(capacity);
+
+  let inPos = 0;
+  let outPos = 0;
+  while (inPos + frameSize <= samples.length && outPos + frameSize <= capacity) {
+    for (let i = 0; i < frameSize; i++) {
+      const w = window[i];
+      acc[outPos + i] += samples[inPos + i] * w;
+      norm[outPos + i] += w;
+    }
+    inPos += analysisHop;
+    outPos += synthesisHop;
+  }
+
+  const outLength = Math.min(capacity, outPos + frameSize);
   const out = new Int16Array(outLength);
-  const lastIndex = samples.length - 1;
   for (let i = 0; i < outLength; i++) {
-    const srcPos = i * factor;
-    const idx0 = Math.min(lastIndex, Math.floor(srcPos));
-    const idx1 = Math.min(lastIndex, idx0 + 1);
-    const frac = srcPos - idx0;
-    out[i] = Math.round(samples[idx0] * (1 - frac) + samples[idx1] * frac);
+    // Normalising by the summed window weight keeps amplitude flat across the
+    // ramp-in/ramp-out regions where fewer grains overlap.
+    const weight = norm[i] > 1e-6 ? norm[i] : 1;
+    out[i] = clampInt16(Math.round(acc[i] / weight));
   }
   return out;
 }
 
 /**
- * Builds the final dubbed-track PCM timeline by placing each block's synthesized
- * audio at `max(originalStart, previousBlockActualEnd + gap)`. This never plays a
- * block earlier than its true original moment (drift is always >= 0) and re-anchors
- * to the real timestamp at every natural pause/speaker change. Before placing, if a
- * block's synthesized audio would run past the next block's original start (which is
- * the common case in dense conversation, where translated speech often runs longer
- * than the source), it's sped up just enough to fit — capped at MAX_SPEED_FACTOR —
- * so drift doesn't keep compounding across an entire uninterrupted run of blocks.
- * Silence padding between blocks is free — a freshly allocated Int16Array is
- * zero-initialized, and 0 is silence in signed 16-bit PCM.
+ * Builds the final dubbed-track PCM timeline.
+ *
+ * Every segment is anchored to its ORIGINAL timestamp and may only be at most
+ * MAX_LATE_SECONDS late, so timing errors never accumulate. To make that anchoring
+ * possible without talking over the next line, a segment whose synthesized audio
+ * would overrun its slot is time-compressed (pitch-preserving) by up to
+ * MAX_SPEED_FACTOR first.
+ *
+ * When even that isn't enough, segments are MIXED rather than pushed — deliberately.
+ * Overlap mostly arises where speakers already overlapped in the source (Deepgram
+ * emits overlapping utterances for crosstalk), so a brief overlap in the dub is both
+ * truer to the original and far less damaging than silently sliding everything after
+ * it out of sync.
+ *
+ * Input order doesn't matter: segments are sorted by original start time here, which
+ * matters because overlapping-speaker utterances do NOT come back in chronological
+ * order from Deepgram.
  */
-export function createDubTimelinePlacer(sampleRate: number, initialDurationSeconds: number): DubTimelinePlacer {
+export function assembleDubTimeline(
+  segments: DubSegmentInput[],
+  sampleRate: number,
+  initialDurationSeconds: number
+): DubAssemblyResult {
+  const ordered = [...segments].sort((a, b) => a.start - b.start || a.index - b.index);
+
   let pcm = new Int16Array(Math.ceil(Math.max(initialDurationSeconds, 1) * 1.05 * sampleRate));
-  let previousActualEndSamples = 0;
-  let maxDriftSeconds = 0;
-  let maxSpeedFactor = 1;
   const placements: DubPlacement[] = [];
   const minGapSamples = Math.round(MIN_GAP_SECONDS * sampleRate);
+  const maxLateSamples = Math.round(MAX_LATE_SECONDS * sampleRate);
+
+  let previousEndSamples = 0;
+  let maxDriftSeconds = 0;
+  let maxSpeedFactor = 1;
 
   function ensureCapacity(neededSamples: number) {
     if (neededSamples <= pcm.length) return;
-    const grown = new Int16Array(neededSamples);
+    const grown = new Int16Array(Math.ceil(neededSamples * 1.25));
     grown.set(pcm);
     pcm = grown;
   }
 
-  return {
-    place(index, originalStartSeconds, samples, nextOriginalStartSeconds) {
-      const originalStartSamples = Math.round(originalStartSeconds * sampleRate);
-      const actualStartSamples = Math.max(originalStartSamples, previousActualEndSamples + minGapSamples);
+  for (let i = 0; i < ordered.length; i++) {
+    const segment = ordered[i];
+    const originalStartSamples = Math.max(0, Math.round(segment.start * sampleRate));
 
-      let toPlace = samples;
-      if (typeof nextOriginalStartSeconds === 'number') {
-        const nextOriginalStartSamples = Math.round(nextOriginalStartSeconds * sampleRate);
-        const availableSamples = nextOriginalStartSamples - minGapSamples - actualStartSamples;
-        if (availableSamples > 0 && samples.length > availableSamples) {
-          const neededFactor = samples.length / availableSamples;
-          const factor = Math.min(MAX_SPEED_FACTOR, neededFactor);
-          toPlace = speedUpPcm(samples, factor);
-          maxSpeedFactor = Math.max(maxSpeedFactor, factor);
-        }
+    // Never play a line early; never let it be more than MAX_LATE_SECONDS late either.
+    const preferredStart = previousEndSamples + minGapSamples;
+    const actualStartSamples = Math.min(
+      Math.max(originalStartSamples, preferredStart),
+      originalStartSamples + maxLateSamples
+    );
+
+    let toPlace = segment.samples;
+    const next = ordered[i + 1];
+    if (next) {
+      const nextOriginalStartSamples = Math.max(0, Math.round(next.start * sampleRate));
+      // The next line gets the same lateness allowance, so this one may borrow it.
+      const availableSamples = nextOriginalStartSamples + maxLateSamples - minGapSamples - actualStartSamples;
+      if (availableSamples > 0 && toPlace.length > availableSamples) {
+        const factor = Math.min(MAX_SPEED_FACTOR, toPlace.length / availableSamples);
+        toPlace = timeCompress(toPlace, factor, sampleRate);
+        maxSpeedFactor = Math.max(maxSpeedFactor, factor);
       }
+    }
 
-      const endSamples = actualStartSamples + toPlace.length;
+    const endSamples = actualStartSamples + toPlace.length;
+    ensureCapacity(endSamples);
 
-      ensureCapacity(endSamples);
-      pcm.set(toPlace, actualStartSamples);
-      previousActualEndSamples = endSamples;
+    // Additive mix (not overwrite): where two segments overlap, both stay audible
+    // instead of the later one silently truncating the earlier one's tail.
+    for (let j = 0; j < toPlace.length; j++) {
+      const at = actualStartSamples + j;
+      const existing = pcm[at];
+      pcm[at] = existing === 0 ? toPlace[j] : clampInt16(existing + toPlace[j]);
+    }
 
-      const drift = Math.max(0, (actualStartSamples - originalStartSamples) / sampleRate);
-      maxDriftSeconds = Math.max(maxDriftSeconds, drift);
+    previousEndSamples = Math.max(previousEndSamples, endSamples);
 
-      placements.push({
-        index,
-        actualStart: actualStartSamples / sampleRate,
-        actualEnd: endSamples / sampleRate,
-      });
-    },
-    finish() {
-      return { pcm, maxDriftSeconds, maxSpeedFactor, placements };
-    },
-  };
+    const drift = (actualStartSamples - originalStartSamples) / sampleRate;
+    maxDriftSeconds = Math.max(maxDriftSeconds, drift);
+
+    placements.push({
+      index: segment.index,
+      actualStart: actualStartSamples / sampleRate,
+      actualEnd: endSamples / sampleRate,
+    });
+  }
+
+  // Trim trailing silence from the over-allocated buffer so the exported duration
+  // reflects the real content length.
+  const usedLength = Math.min(pcm.length, previousEndSamples);
+  const finalPcm = usedLength === pcm.length ? pcm : pcm.subarray(0, usedLength);
+
+  return { pcm: finalPcm, maxDriftSeconds, maxSpeedFactor, placements };
 }
