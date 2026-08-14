@@ -36,7 +36,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const sourceUrl = episode.audioUrl || episode.videoUrl;
+    // Prefer the VIDEO as the transcription source whenever one exists. Playback syncs
+    // the dub track against `video.currentTime` (see NetflixPlayer's dubAudioRef sync
+    // effects), so if a standalone audioUrl release has a different intro/edit length
+    // than the video, transcribing the audio would anchor every timestamp to the wrong
+    // reference and the whole dub would be offset from the very first second.
+    const sourceUrl = episode.videoUrl || episode.audioUrl;
     if (!sourceUrl) {
       return NextResponse.json(
         { error: 'El episodio no tiene audioUrl ni videoUrl del que partir' },

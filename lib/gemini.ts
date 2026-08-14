@@ -5,7 +5,7 @@
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
-const GEMINI_TRANSLATE_MODEL = process.env.GEMINI_TRANSLATE_MODEL || 'gemini-3.5-live-translate';
+const GEMINI_TRANSLATE_MODEL = process.env.GEMINI_TRANSLATE_MODEL || 'gemini-3.6-flash';
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 interface GeminiGenerationOptions {
@@ -30,7 +30,7 @@ async function callGemini(prompt: string, options: GeminiGenerationOptions = {})
     generationConfig.responseSchema = options.responseSchema;
   }
 
-  const res = await fetch(
+  let res = await fetch(
     `${GEMINI_API_BASE}/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
     {
       method: 'POST',
@@ -41,6 +41,21 @@ async function callGemini(prompt: string, options: GeminiGenerationOptions = {})
       }),
     }
   );
+
+  // Si el modelo específico devuelve 404 (p. ej. si no soporta generateContent o no existe en v1beta REST), hacemos fallback al modelo principal
+  if (res.status === 404 && model !== GEMINI_MODEL) {
+    res = await fetch(
+      `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig,
+        }),
+      }
+    );
+  }
 
   if (!res.ok) {
     const errorText = await res.text();
