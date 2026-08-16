@@ -29,6 +29,7 @@ import {
   Trash2,
   CalendarDays,
   Images,
+  History,
 } from 'lucide-react';
 import CommandPalette from '@/components/dashboard/CommandPalette';
 
@@ -177,7 +178,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       items: [
         { label: 'Analíticas', href: '/user-stats', icon: BarChart3 },
         ...(user?.role === 'admin' || user?.role === 'owner'
-          ? [{ label: 'Deepgram Admin', href: '/deepgram-stats', icon: Cpu }]
+          ? [
+              { label: 'Deepgram Admin', href: '/deepgram-stats', icon: Cpu },
+              { label: 'Registro de Auditoría', href: '/admin/audit-log', icon: History },
+            ]
           : []),
         {
           label: 'Broslytics ↗',

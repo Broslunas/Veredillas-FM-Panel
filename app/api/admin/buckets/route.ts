@@ -4,6 +4,7 @@ import dbConnect from '@/lib/mongodb';
 import R2Bucket, { HARD_MAX_BUCKET_BYTES, R2BucketType } from '@/models/R2Bucket';
 import { encryptSecret } from '@/lib/encryption';
 import { serializeBucketForClient } from '@/lib/r2';
+import { logAudit } from '@/lib/audit-log';
 
 const VALID_TYPES: R2BucketType[] = ['images', 'multimedia', 'clips'];
 
@@ -20,8 +21,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const { authorized } = await isAuthorizedOwnerOrAdmin(request);
-  if (!authorized) {
+  const { authorized, user } = await isAuthorizedOwnerOrAdmin(request);
+  if (!authorized || !user) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
 
@@ -75,6 +76,15 @@ export async function POST(request: Request) {
       maxBytes: resolvedMaxBytes,
       isDefault: Boolean(isDefault),
       isActive: isActive !== undefined ? Boolean(isActive) : true,
+    });
+
+    await logAudit({
+      actor: user,
+      action: 'create',
+      resource: 'bucket',
+      resourceId: bucket._id.toString(),
+      label: bucket.label,
+      metadata: { bucketName, type, isDefault: Boolean(isDefault) },
     });
 
     return NextResponse.json({ success: true, bucket: serializeBucketForClient(bucket) }, { status: 201 });

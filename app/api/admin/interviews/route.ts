@@ -4,6 +4,7 @@ import { isAuthorizedAdmin } from '@/lib/api-guard';
 import dbConnect from '@/lib/mongodb';
 import InterviewRequest from '@/models/InterviewRequest';
 import User from '@/models/User';
+import { buildFieldChanges, logAudit } from '@/lib/audit-log';
 
 // ── GET: Fetch all interview requests & registered users ──
 export async function GET(request: Request) {
@@ -32,8 +33,8 @@ export async function GET(request: Request) {
 // ── POST: Create new interview request / invitation ──
 export async function POST(request: Request) {
   try {
-    const { authorized } = await isAuthorizedAdmin(request);
-    if (!authorized) {
+    const { authorized, user } = await isAuthorizedAdmin(request);
+    if (!authorized || !user) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }
 
@@ -55,6 +56,14 @@ export async function POST(request: Request) {
       preferredDate: preferredDate ? new Date(preferredDate) : undefined,
       token,
       status: status || 'invited',
+    });
+
+    await logAudit({
+      actor: user,
+      action: 'create',
+      resource: 'interview',
+      resourceId: newRequest._id.toString(),
+      label: `${newRequest.name} — ${newRequest.topic}`,
     });
 
     // Optional webhook trigger to n8n for interview invite
@@ -84,8 +93,8 @@ export async function POST(request: Request) {
 // ── PATCH / PUT: Update status or details ──
 export async function PATCH(request: Request) {
   try {
-    const { authorized } = await isAuthorizedAdmin(request);
-    if (!authorized) {
+    const { authorized, user } = await isAuthorizedAdmin(request);
+    if (!authorized || !user) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }
 
@@ -106,10 +115,20 @@ export async function PATCH(request: Request) {
     if (description !== undefined) updateData.description = description;
     if (preferredDate !== undefined) updateData.preferredDate = preferredDate ? new Date(preferredDate) : null;
 
+    const before = await InterviewRequest.findById(id).lean();
     const updated = await InterviewRequest.findByIdAndUpdate(id, updateData, { new: true });
     if (!updated) {
       return NextResponse.json({ error: 'Solicitud de entrevista no encontrada' }, { status: 404 });
     }
+
+    await logAudit({
+      actor: user,
+      action: 'update',
+      resource: 'interview',
+      resourceId: id,
+      label: `${updated.name} — ${updated.topic}`,
+      changes: buildFieldChanges(before, updateData, Object.keys(updateData)),
+    });
 
     return NextResponse.json({ success: true, request: updated });
   } catch (error) {
@@ -125,8 +144,8 @@ export async function PUT(request: Request) {
 // ── DELETE: Delete interview request by ID ──
 export async function DELETE(request: Request) {
   try {
-    const { authorized } = await isAuthorizedAdmin(request);
-    if (!authorized) {
+    const { authorized, user } = await isAuthorizedAdmin(request);
+    if (!authorized || !user) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }
 
@@ -144,7 +163,17 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Falta el id para eliminar' }, { status: 400 });
     }
 
-    await InterviewRequest.findByIdAndDelete(targetId);
+    const deleted = await InterviewRequest.findByIdAndDelete(targetId);
+
+    if (deleted) {
+      await logAudit({
+        actor: user,
+        action: 'permanent_delete',
+        resource: 'interview',
+        resourceId: targetId,
+        label: `${deleted.name} — ${deleted.topic}`,
+      });
+    }
 
     return NextResponse.json({ success: true, deletedId: targetId });
   } catch (error) {

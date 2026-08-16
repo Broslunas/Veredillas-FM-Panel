@@ -5,6 +5,7 @@ import BlogPost from '@/models/BlogPost';
 import Guest from '@/models/Guest';
 import Team from '@/models/Team';
 import { isAuthorizedAdmin, isAuthorizedOwnerOrAdmin } from '@/lib/api-guard';
+import { logAudit } from '@/lib/audit-log';
 
 const COLLECTION_MODELS: Record<string, any> = {
   episodes: EpisodeContent,
@@ -13,12 +14,23 @@ const COLLECTION_MODELS: Record<string, any> = {
   team: Team,
 };
 
+const RESOURCE_NAMES: Record<string, string> = {
+  episodes: 'episode',
+  blog: 'blog',
+  guests: 'guest',
+  team: 'team',
+};
+
+function labelFor(doc: any): string {
+  return doc?.title || doc?.name || doc?._id?.toString() || '';
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ collection: string; id: string }> }
 ) {
-  const { authorized } = await isAuthorizedAdmin(request);
-  if (!authorized) {
+  const { authorized, user } = await isAuthorizedAdmin(request);
+  if (!authorized || !user) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
 
@@ -35,6 +47,14 @@ export async function POST(
     return NextResponse.json({ error: 'Elemento no encontrado' }, { status: 404 });
   }
 
+  await logAudit({
+    actor: user,
+    action: 'restore',
+    resource: RESOURCE_NAMES[collection] || collection,
+    resourceId: id,
+    label: labelFor(doc),
+  });
+
   return NextResponse.json({ success: true, message: 'Elemento restaurado correctamente' });
 }
 
@@ -42,8 +62,8 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ collection: string; id: string }> }
 ) {
-  const { authorized } = await isAuthorizedOwnerOrAdmin(request);
-  if (!authorized) {
+  const { authorized, user } = await isAuthorizedOwnerOrAdmin(request);
+  if (!authorized || !user) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
 
@@ -59,6 +79,14 @@ export async function DELETE(
   if (!doc) {
     return NextResponse.json({ error: 'Elemento no encontrado' }, { status: 404 });
   }
+
+  await logAudit({
+    actor: user,
+    action: 'permanent_delete',
+    resource: RESOURCE_NAMES[collection] || collection,
+    resourceId: id,
+    label: labelFor(doc),
+  });
 
   return NextResponse.json({ success: true, message: 'Elemento eliminado definitivamente' });
 }

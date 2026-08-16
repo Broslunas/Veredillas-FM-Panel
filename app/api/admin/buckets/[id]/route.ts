@@ -4,6 +4,18 @@ import dbConnect from '@/lib/mongodb';
 import R2Bucket, { HARD_MAX_BUCKET_BYTES, R2BucketType } from '@/models/R2Bucket';
 import { encryptSecret } from '@/lib/encryption';
 import { serializeBucketForClient } from '@/lib/r2';
+import { buildFieldChanges, logAudit } from '@/lib/audit-log';
+
+const AUDITABLE_FIELDS = [
+  'label',
+  'bucketName',
+  'type',
+  'accountId',
+  'endpoint',
+  'publicUrlBase',
+  'maxBytes',
+  'isActive',
+];
 
 const VALID_TYPES: R2BucketType[] = ['images', 'multimedia', 'clips'];
 
@@ -25,8 +37,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 }
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { authorized } = await isAuthorizedOwnerOrAdmin(request);
-  if (!authorized) {
+  const { authorized, user } = await isAuthorizedOwnerOrAdmin(request);
+  if (!authorized || !user) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
 
@@ -94,6 +106,20 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: 'Bucket no encontrado' }, { status: 404 });
     }
 
+    const changes = buildFieldChanges(existing, updateData, AUDITABLE_FIELDS.filter((f) => f in updateData));
+    if (updateData.secretAccessKeyEncrypted) {
+      changes.secretAccessKey = { before: '••••••••', after: '••••••••' };
+    }
+
+    await logAudit({
+      actor: user,
+      action: 'update',
+      resource: 'bucket',
+      resourceId: id,
+      label: bucket.label,
+      changes,
+    });
+
     return NextResponse.json({ success: true, bucket: serializeBucketForClient(bucket) });
   } catch (error: any) {
     if (error?.code === 11000) {
@@ -105,8 +131,8 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { authorized } = await isAuthorizedOwnerOrAdmin(request);
-  if (!authorized) {
+  const { authorized, user } = await isAuthorizedOwnerOrAdmin(request);
+  if (!authorized || !user) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
 
@@ -126,6 +152,15 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   }
 
   await R2Bucket.findByIdAndDelete(id);
+
+  await logAudit({
+    actor: user,
+    action: 'permanent_delete',
+    resource: 'bucket',
+    resourceId: id,
+    label: bucket.label,
+    metadata: { bucketName: bucket.bucketName, type: bucket.type },
+  });
 
   return NextResponse.json({ success: true, message: 'Bucket eliminado correctamente' });
 }

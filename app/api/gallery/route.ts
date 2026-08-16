@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import GalleryCategory from '@/models/GalleryCategory';
 import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { logAudit } from '@/lib/audit-log';
 
 export async function GET(request: Request) {
   const { authorized } = await isAuthorizedAdmin(request);
@@ -26,8 +27,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const { authorized } = await isAuthorizedAdmin(request);
-  if (!authorized) {
+  const { authorized, user } = await isAuthorizedAdmin(request);
+  if (!authorized || !user) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
 
@@ -46,6 +47,15 @@ export async function POST(request: Request) {
     }
 
     const created = await GalleryCategory.create(data);
+
+    await logAudit({
+      actor: user,
+      action: 'create',
+      resource: 'gallery',
+      resourceId: created._id.toString(),
+      label: created.category,
+    });
+
     return NextResponse.json(created, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Error al crear la categoría de galería' }, { status: 400 });

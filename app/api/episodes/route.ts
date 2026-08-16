@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import EpisodeContent from '@/models/EpisodeContent';
 import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { logAudit } from '@/lib/audit-log';
 
 export async function GET(request: Request) {
   const { authorized } = await isAuthorizedAdmin(request);
@@ -34,8 +35,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const { authorized } = await isAuthorizedAdmin(request);
-  if (!authorized) {
+  const { authorized, user } = await isAuthorizedAdmin(request);
+  if (!authorized || !user) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
 
@@ -55,6 +56,15 @@ export async function POST(request: Request) {
     }
 
     const episode = await EpisodeContent.create(data);
+
+    await logAudit({
+      actor: user,
+      action: 'create',
+      resource: 'episode',
+      resourceId: episode._id.toString(),
+      label: episode.title,
+    });
+
     return NextResponse.json(episode, { status: 201 });
   } catch (error: any) {
     console.error('Error creating episode:', error);

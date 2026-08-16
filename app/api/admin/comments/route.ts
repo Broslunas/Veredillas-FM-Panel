@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { isAuthorizedAdmin } from '@/lib/api-guard';
 import dbConnect from '@/lib/mongodb';
 import Comment from '@/models/Comment';
+import { buildFieldChanges, logAudit } from '@/lib/audit-log';
 
 // ── GET: Fetch and filter comments ──
 export async function GET(request: Request) {
@@ -62,8 +63,8 @@ export async function GET(request: Request) {
 // ── PATCH / PUT: Update comment details or verification status ──
 export async function PATCH(request: Request) {
   try {
-    const { authorized } = await isAuthorizedAdmin(request);
-    if (!authorized) {
+    const { authorized, user } = await isAuthorizedAdmin(request);
+    if (!authorized || !user) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }
 
@@ -82,10 +83,20 @@ export async function PATCH(request: Request) {
     if (text !== undefined) updateData.text = text;
     if (typeof rating === 'number') updateData.rating = rating;
 
+    const before = await Comment.findById(id).lean();
     const updatedComment = await Comment.findByIdAndUpdate(id, updateData, { new: true });
     if (!updatedComment) {
       return NextResponse.json({ error: 'Comentario no encontrado' }, { status: 404 });
     }
+
+    await logAudit({
+      actor: user,
+      action: 'update',
+      resource: 'comment',
+      resourceId: id,
+      label: `${updatedComment.name}: ${updatedComment.text}`,
+      changes: buildFieldChanges(before, updateData, Object.keys(updateData)),
+    });
 
     return NextResponse.json({ success: true, comment: updatedComment });
   } catch (error) {
@@ -101,8 +112,8 @@ export async function PUT(request: Request) {
 // ── DELETE: Delete single or bulk comments ──
 export async function DELETE(request: Request) {
   try {
-    const { authorized } = await isAuthorizedAdmin(request);
-    if (!authorized) {
+    const { authorized, user } = await isAuthorizedAdmin(request);
+    if (!authorized || !user) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }
 
@@ -126,7 +137,20 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'No se especificaron comentarios para eliminar' }, { status: 400 });
     }
 
+    const toDelete = await Comment.find({ _id: { $in: idsToDelete } }).lean();
     await Comment.deleteMany({ _id: { $in: idsToDelete } });
+
+    await Promise.all(
+      toDelete.map((comment: any) =>
+        logAudit({
+          actor: user,
+          action: 'permanent_delete',
+          resource: 'comment',
+          resourceId: comment._id.toString(),
+          label: `${comment.name}: ${comment.text}`,
+        })
+      )
+    );
 
     return NextResponse.json({ success: true, deletedCount: idsToDelete.length });
   } catch (error) {

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import Team from '@/models/Team';
 import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { logAudit } from '@/lib/audit-log';
 
 export async function GET(request: Request) {
   const { authorized } = await isAuthorizedAdmin(request);
@@ -31,8 +32,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const { authorized } = await isAuthorizedAdmin(request);
-  if (!authorized) {
+  const { authorized, user } = await isAuthorizedAdmin(request);
+  if (!authorized || !user) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
 
@@ -51,6 +52,15 @@ export async function POST(request: Request) {
     }
 
     const member = await Team.create(data);
+
+    await logAudit({
+      actor: user,
+      action: 'create',
+      resource: 'team',
+      resourceId: member._id.toString(),
+      label: member.name,
+    });
+
     return NextResponse.json(member, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Error al crear el miembro del equipo' }, { status: 400 });

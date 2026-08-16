@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { isAuthorizedAdmin } from '@/lib/api-guard';
 import dbConnect from '@/lib/mongodb';
 import User from '@/models/User';
+import { buildFieldChanges, logAudit } from '@/lib/audit-log';
 
 // ── GET: List and filter users ──
 export async function GET(request: Request) {
@@ -111,6 +112,30 @@ export async function PUT(request: Request) {
 
     const updatedUser = await User.findByIdAndUpdate(userId, updateData, { new: true }).select('-__v');
 
+    if (updateData.role && updateData.role !== userBefore.role) {
+      await logAudit({
+        actor: currentUser,
+        action: 'role_change',
+        resource: 'user',
+        resourceId: userId,
+        label: updatedUser?.name || userBefore.name,
+        changes: { role: { before: userBefore.role, after: updateData.role } },
+      });
+    }
+
+    const { role: _roleIgnored, ...nonRoleUpdates } = updateData;
+    const otherChanges = buildFieldChanges(userBefore, nonRoleUpdates, Object.keys(nonRoleUpdates));
+    if (Object.keys(otherChanges).length > 0) {
+      await logAudit({
+        actor: currentUser,
+        action: 'update',
+        resource: 'user',
+        resourceId: userId,
+        label: updatedUser?.name || userBefore.name,
+        changes: otherChanges,
+      });
+    }
+
     // Trigger n8n webhook on newsletter subscription status change
     if (newsletter !== undefined && userBefore.newsletter !== newsletter) {
       try {
@@ -189,6 +214,15 @@ export async function DELETE(request: Request) {
 
       await User.findByIdAndDelete(targetId);
       deletedIds.push(targetId);
+
+      await logAudit({
+        actor: currentUser,
+        action: 'permanent_delete',
+        resource: 'user',
+        resourceId: targetId,
+        label: targetUser.name,
+        metadata: { email: targetUser.email, role: targetUser.role },
+      });
     }
 
     return NextResponse.json({

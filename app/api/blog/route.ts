@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import BlogPost from '@/models/BlogPost';
 import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { logAudit } from '@/lib/audit-log';
 
 export async function GET(request: Request) {
   const { authorized } = await isAuthorizedAdmin(request);
@@ -27,8 +28,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const { authorized } = await isAuthorizedAdmin(request);
-  if (!authorized) {
+  const { authorized, user } = await isAuthorizedAdmin(request);
+  if (!authorized || !user) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
 
@@ -47,6 +48,15 @@ export async function POST(request: Request) {
     }
 
     const post = await BlogPost.create(data);
+
+    await logAudit({
+      actor: user,
+      action: 'create',
+      resource: 'blog',
+      resourceId: post._id.toString(),
+      label: post.title,
+    });
+
     return NextResponse.json(post, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Error al crear la publicación' }, { status: 400 });
