@@ -3,13 +3,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { UploadCloud, Trash2, Loader2, CheckCircle2, AlertCircle, RefreshCw, Video } from 'lucide-react';
 
-type Visibility = 'public' | 'unlisted' | 'private';
-
 interface ClipUploadItem {
   id: string;
   file: File;
   title: string;
-  visibility: Visibility;
   status: 'pending' | 'uploading' | 'success' | 'error';
   progress: number;
   error?: string;
@@ -38,7 +35,6 @@ export default function ClipYouTubeBatchUploader({ onUploaded }: ClipYouTubeBatc
         id: `${f.name}-${f.size}-${Math.random().toString(36).slice(2)}`,
         file: f,
         title: f.name.replace(/\.[^/.]+$/, ''),
-        visibility: 'unlisted',
         status: 'pending',
         progress: 0,
       }));
@@ -65,28 +61,26 @@ export default function ClipYouTubeBatchUploader({ onUploaded }: ClipYouTubeBatc
     try {
       const finalTitle = item.title.trim() || item.file.name.replace(/\.[^/.]+$/, '');
 
-      const sessionRes = await fetch('/api/youtube/upload/session', {
+      const presignRes = await fetch('/api/admin/r2-presign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: finalTitle,
-          description: '',
-          tags: [],
-          categoryId: '22',
-          privacyStatus: item.visibility,
-          mimeType: item.file.type || 'video/mp4',
+          fileName: item.file.name,
+          contentType: item.file.type || 'video/mp4',
+          folder: 'social-clips',
+          target: 'video',
           fileSize: item.file.size,
         }),
       });
 
-      const sessionData = await sessionRes.json();
-      if (!sessionRes.ok || !sessionData.uploadUrl) {
-        throw new Error(sessionData.error || 'No se pudo iniciar la sesión de subida en YouTube.');
+      const presignData = await presignRes.json();
+      if (!presignRes.ok || !presignData.presignedUrl) {
+        throw new Error(presignData.error || 'No se pudo iniciar la subida a R2.');
       }
 
-      const videoId = await new Promise<string>((resolve, reject) => {
+      await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open('PUT', sessionData.uploadUrl, true);
+        xhr.open('PUT', presignData.presignedUrl, true);
         xhr.setRequestHeader('Content-Type', item.file.type || 'video/mp4');
 
         xhr.upload.onprogress = (evt) => {
@@ -96,24 +90,15 @@ export default function ClipYouTubeBatchUploader({ onUploaded }: ClipYouTubeBatc
         };
 
         xhr.onload = () => {
-          if (xhr.status === 200 || xhr.status === 201) {
-            try {
-              const resp = JSON.parse(xhr.responseText);
-              if (resp.id) resolve(resp.id);
-              else reject(new Error('Subida completada pero no se recibió el ID del vídeo.'));
-            } catch {
-              reject(new Error('Respuesta inválida de YouTube.'));
-            }
-          } else {
-            reject(new Error(`Error al subir el vídeo a YouTube (HTTP ${xhr.status}).`));
-          }
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error(`Error al subir el vídeo a R2 (HTTP ${xhr.status}).`));
         };
 
-        xhr.onerror = () => reject(new Error('Error de conexión durante la subida a YouTube.'));
+        xhr.onerror = () => reject(new Error('Error de conexión durante la subida a R2.'));
         xhr.send(item.file);
       });
 
-      const url = `https://youtu.be/${videoId}`;
+      const url = presignData.publicUrl as string;
       updateItem(item.id, { status: 'success', progress: 100, url });
       onUploaded({ title: finalTitle, url });
     } catch (err) {
@@ -144,11 +129,11 @@ export default function ClipYouTubeBatchUploader({ onUploaded }: ClipYouTubeBatc
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h3 className="text-sm font-semibold text-zinc-200 flex items-center gap-2">
-            <Video className="w-4 h-4 text-red-500" />
-            <span>Subir Clips desde tu Ordenador a YouTube</span>
+            <Video className="w-4 h-4 text-indigo-400" />
+            <span>Subir Clips desde tu Ordenador a R2</span>
           </h3>
           <p className="text-xs text-zinc-400">
-            Selecciona varios vídeos a la vez, edita el título y la visibilidad de cada uno, y súbelos a YouTube de uno en uno.
+            Selecciona varios vídeos a la vez, edita el título de cada uno, y súbelos a R2 de uno en uno.
           </p>
         </div>
 
@@ -171,7 +156,7 @@ export default function ClipYouTubeBatchUploader({ onUploaded }: ClipYouTubeBatc
               className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1.5"
             >
               {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />}
-              <span>{isProcessing ? 'Subiendo...' : 'Subir a YouTube (uno a uno)'}</span>
+              <span>{isProcessing ? 'Subiendo...' : 'Subir a R2 (uno a uno)'}</span>
             </button>
           )}
         </div>
@@ -199,17 +184,6 @@ export default function ClipYouTubeBatchUploader({ onUploaded }: ClipYouTubeBatc
                   placeholder="Título del clip"
                   className="flex-1 min-w-[160px] bg-zinc-900 border border-zinc-800 rounded px-3 py-1.5 text-xs text-zinc-100 disabled:opacity-60 focus:outline-none focus:border-zinc-600"
                 />
-
-                <select
-                  value={item.visibility}
-                  onChange={(e) => updateItem(item.id, { visibility: e.target.value as Visibility })}
-                  disabled={item.status === 'uploading' || item.status === 'success'}
-                  className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-xs text-zinc-100 disabled:opacity-60 focus:outline-none focus:border-zinc-600"
-                >
-                  <option value="public">Público</option>
-                  <option value="unlisted">Oculto</option>
-                  <option value="private">Privado</option>
-                </select>
 
                 {item.status === 'pending' && (
                   <button
