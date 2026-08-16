@@ -22,15 +22,49 @@ interface AuraVoice {
   metadata?: { accent?: string; display_name?: string; tags?: string[] };
 }
 
-function voiceGenderLabel(voice: AuraVoice): string | null {
+type VoiceGender = 'masculine' | 'feminine';
+
+function voiceGenderTag(voice: AuraVoice): VoiceGender | null {
   const tags = voice.metadata?.tags || [];
-  if (tags.includes('feminine')) return 'Femenina';
-  if (tags.includes('masculine')) return 'Masculina';
+  if (tags.includes('feminine')) return 'feminine';
+  if (tags.includes('masculine')) return 'masculine';
   return null;
 }
 
 function voiceDisplayName(voice: AuraVoice): string {
   return voice.metadata?.display_name || voice.name || voice.canonical_name;
+}
+
+// Segmented pill switch used to filter the voice picker by gender.
+function GenderToggle({ value, onChange }: { value: VoiceGender; onChange: (v: VoiceGender) => void }) {
+  const isFeminine = value === 'feminine';
+  return (
+    <div className="relative inline-flex items-center w-28 h-6 p-0.5 rounded-full bg-zinc-900 border border-zinc-700 shrink-0 select-none">
+      <div
+        className={`absolute inset-y-0.5 w-[calc(50%-2px)] rounded-full transition-all duration-200 ease-out ${
+          isFeminine ? 'left-[calc(50%+1px)] bg-rose-500' : 'left-0.5 bg-sky-500'
+        }`}
+      />
+      <button
+        type="button"
+        onClick={() => onChange('masculine')}
+        className={`relative z-10 flex-1 h-full flex items-center justify-center text-[9px] font-bold uppercase tracking-wide rounded-full transition-colors ${
+          isFeminine ? 'text-zinc-400 hover:text-zinc-300' : 'text-white'
+        }`}
+      >
+        Masc.
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('feminine')}
+        className={`relative z-10 flex-1 h-full flex items-center justify-center text-[9px] font-bold uppercase tracking-wide rounded-full transition-colors ${
+          isFeminine ? 'text-white' : 'text-zinc-400 hover:text-zinc-300'
+        }`}
+      >
+        Fem.
+      </button>
+    </div>
+  );
 }
 
 interface DubTrackSummary {
@@ -122,6 +156,7 @@ export default function DubbingManager({ episodeId, episodeSlug, sourceUrl, init
   const [busyLang, setBusyLang] = useState<string | null>(null);
   const [progress, setProgress] = useState<DubbingProgressSnapshot | null>(null);
   const [pendingVoiceSelection, setPendingVoiceSelection] = useState<PendingVoiceSelection | null>(null);
+  const [genderFilter, setGenderFilter] = useState<Record<string, VoiceGender>>({});
   const tracksRef = useRef<DubTrackSummary[]>(tracks);
 
   useEffect(() => {
@@ -470,15 +505,46 @@ export default function DubbingManager({ episodeId, episodeSlug, sourceUrl, init
           </p>
 
           <div className="space-y-2">
-            {pendingVoiceSelection.speakerIds.map((speakerId) => {
-              const options = voicesForLang(pendingVoiceSelection.lang);
+            {pendingVoiceSelection.speakerIds.map((speakerId, idx) => {
               const key = String(speakerId);
               const speakerLabel = pendingVoiceSelection.speakerNames[key] || `Hablante ${speakerId + 1}`;
+              const allOptions = voicesForLang(pendingVoiceSelection.lang);
+
+              const selectedVoice = allOptions.find((v) => v.canonical_name === pendingVoiceSelection.voiceMap[key]);
+              const inferredGender = selectedVoice ? voiceGenderTag(selectedVoice) : null;
+              const gender: VoiceGender = genderFilter[key] || inferredGender || (idx % 2 === 0 ? 'masculine' : 'feminine');
+
+              const genderOptions = allOptions.filter((v) => voiceGenderTag(v) === gender);
+              const options = genderOptions.length > 0 ? genderOptions : allOptions;
+
+              // Voices already picked for other speakers, so the picker can flag reuse.
+              const usedElsewhere: Record<string, string[]> = {};
+              Object.entries(pendingVoiceSelection.voiceMap).forEach(([k, voiceName]) => {
+                if (!voiceName || k === key) return;
+                const label = pendingVoiceSelection.speakerNames[k] || `Hablante ${Number(k) + 1}`;
+                if (!usedElsewhere[voiceName]) usedElsewhere[voiceName] = [];
+                usedElsewhere[voiceName].push(label);
+              });
+
+              function selectGender(newGender: VoiceGender) {
+                setGenderFilter((prev) => ({ ...prev, [key]: newGender }));
+                const candidates = allOptions.filter((v) => voiceGenderTag(v) === newGender);
+                const pool = candidates.length > 0 ? candidates : allOptions;
+                const free = pool.find((v) => !usedElsewhere[v.canonical_name]);
+                const next = free || pool[0];
+                setPendingVoiceSelection((prev) =>
+                  prev ? { ...prev, voiceMap: { ...prev.voiceMap, [key]: next ? next.canonical_name : '' } } : prev
+                );
+              }
+
               return (
-                <div key={key} className="flex items-center gap-2">
+                <div key={key} className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs text-zinc-300 font-medium w-28 shrink-0 truncate" title={speakerLabel}>
                     {speakerLabel}
                   </span>
+
+                  <GenderToggle value={gender} onChange={selectGender} />
+
                   <select
                     value={pendingVoiceSelection.voiceMap[key] || ''}
                     onChange={(e) => {
@@ -487,16 +553,16 @@ export default function DubbingManager({ episodeId, episodeSlug, sourceUrl, init
                         prev ? { ...prev, voiceMap: { ...prev.voiceMap, [key]: value } } : prev
                       );
                     }}
-                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                    className="flex-1 min-w-[9rem] bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
                   >
                     {options.length === 0 && <option value="">Sin voces disponibles</option>}
                     {options.map((v) => {
-                      const gender = voiceGenderLabel(v);
+                      const usedBy = usedElsewhere[v.canonical_name];
                       return (
                         <option key={v.canonical_name} value={v.canonical_name} className="bg-zinc-900 text-white">
                           {voiceDisplayName(v)}
                           {v.metadata?.accent ? ` · ${v.metadata.accent}` : ''}
-                          {gender ? ` · ${gender}` : ''}
+                          {usedBy?.length ? ` · en uso: ${usedBy.join(', ')}` : ''}
                         </option>
                       );
                     })}
