@@ -72,7 +72,7 @@ export default function DashboardOverviewPage() {
     { label: 'Episodios', count: stats.episodes, icon: Radio, href: '/episodes', color: 'text-indigo-400' },
     { label: 'Artículos de Blog', count: stats.blog, icon: FileText, href: '/blog', color: 'text-emerald-400' },
     { label: 'Invitados', count: stats.guests, icon: Users, href: '/guests', color: 'text-purple-400' },
-    ...(userRole !== 'editor' ? [{ label: 'Archivos R2', count: stats.files, icon: HardDrive, href: '/media', color: 'text-amber-400' }] : []),
+    ...(userRole !== 'editor' ? [{ label: 'Archivos R2', count: stats.files, icon: HardDrive, href: '/admin/buckets', color: 'text-amber-400' }] : []),
   ];
 
   return (
