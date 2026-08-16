@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import dbConnect from '@/lib/mongodb';
 import Comment from '@/models/Comment';
 import { buildFieldChanges, logAudit } from '@/lib/audit-log';
@@ -7,7 +7,7 @@ import { buildFieldChanges, logAudit } from '@/lib/audit-log';
 // ── GET: Fetch and filter comments ──
 export async function GET(request: Request) {
   try {
-    const { authorized } = await isAuthorizedAdmin(request);
+    const { authorized } = await isAuthorizedRoute(request);
     if (!authorized) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }
@@ -63,7 +63,7 @@ export async function GET(request: Request) {
 // ── PATCH / PUT: Update comment details or verification status ──
 export async function PATCH(request: Request) {
   try {
-    const { authorized, user } = await isAuthorizedAdmin(request);
+    const { authorized, user } = await isAuthorizedRoute(request);
     if (!authorized || !user) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }
@@ -112,7 +112,7 @@ export async function PUT(request: Request) {
 // ── DELETE: Delete single or bulk comments ──
 export async function DELETE(request: Request) {
   try {
-    const { authorized, user } = await isAuthorizedAdmin(request);
+    const { authorized, user } = await isAuthorizedRoute(request);
     if (!authorized || !user) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }

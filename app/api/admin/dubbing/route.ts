@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import { getBucketByType, deleteR2Prefix, deleteR2File } from '@/lib/r2';
 import { getEpisodeWithTrack, removeTrack } from '@/lib/dubbing/store';
 
 export async function DELETE(request: Request) {
-  const { authorized } = await isAuthorizedAdmin(request);
+  const { authorized } = await isAuthorizedRoute(request);
   if (!authorized) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }

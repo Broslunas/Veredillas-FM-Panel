@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { listR2Files, deleteR2File, renameR2File, deleteR2Prefix } from '@/lib/r2';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 
 export async function GET(request: Request) {
-  const { authorized, user } = await isAuthorizedAdmin(request);
+  const { authorized, user } = await isAuthorizedRoute(request);
   if (!authorized || !user || user.role === 'editor') {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const { authorized, user } = await isAuthorizedAdmin(request);
+  const { authorized, user } = await isAuthorizedRoute(request);
   if (!authorized || !user || user.role === 'editor') {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
@@ -50,7 +50,7 @@ export async function DELETE(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const { authorized, user } = await isAuthorizedAdmin(request);
+  const { authorized, user } = await isAuthorizedRoute(request);
   if (!authorized || !user || user.role === 'editor') {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }

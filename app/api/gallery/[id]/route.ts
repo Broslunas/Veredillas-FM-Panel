@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import GalleryCategory from '@/models/GalleryCategory';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import { buildFieldChanges, logAudit } from '@/lib/audit-log';
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { authorized } = await isAuthorizedAdmin(request);
+  const { authorized } = await isAuthorizedRoute(request);
   if (!authorized) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
@@ -22,7 +22,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 }
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { authorized, user } = await isAuthorizedAdmin(request);
+  const { authorized, user } = await isAuthorizedRoute(request);
   if (!authorized || !user) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
@@ -54,7 +54,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { authorized, user } = await isAuthorizedAdmin(request);
+  const { authorized, user } = await isAuthorizedRoute(request);
   if (!authorized || !user) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { parseCookies, verifyToken } from '@/lib/auth';
 import dbConnect from '@/lib/mongodb';
 import User from '@/models/User';
+import { resolvePermissions } from '@/lib/permissions';
 
 export async function GET(request: Request) {
   try {
@@ -32,6 +33,7 @@ export async function GET(request: Request) {
         email: user.email,
         picture: user.picture,
         role: user.role,
+        permissions: resolvePermissions(user.role, user.permissions),
       },
     });
   } catch (error) {

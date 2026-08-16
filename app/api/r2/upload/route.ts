@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { uploadFileToR2 } from '@/lib/r2';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 
 export async function POST(request: Request) {
-  const { authorized, user } = await isAuthorizedAdmin(request);
+  const { authorized, user } = await isAuthorizedRoute(request);
   if (!authorized || !user || user.role === 'editor') {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }

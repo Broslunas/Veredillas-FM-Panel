@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import { transcribeMedia, convertToSRT, convertToVTT, segmentIntoShortSubtitles } from '@/lib/deepgram';
 
 export async function POST(request: Request) {
   try {
-    const { authorized } = await isAuthorizedAdmin(request);
+    const { authorized } = await isAuthorizedRoute(request);
     if (!authorized) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }

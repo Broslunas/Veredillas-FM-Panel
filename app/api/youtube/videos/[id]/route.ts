@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import { updateYouTubeVideo, deleteYouTubeVideo } from '@/lib/youtube';
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { authorized } = await isAuthorizedAdmin(request);
+  const { authorized } = await isAuthorizedRoute(request);
   if (!authorized) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
@@ -37,7 +37,7 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { authorized } = await isAuthorizedAdmin(request);
+  const { authorized } = await isAuthorizedRoute(request);
   if (!authorized) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }

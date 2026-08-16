@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isAuthorizedOwnerOrAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import dbConnect from '@/lib/mongodb';
 import R2Bucket, { HARD_MAX_BUCKET_BYTES, R2BucketType } from '@/models/R2Bucket';
 import { encryptSecret } from '@/lib/encryption';
@@ -21,7 +21,7 @@ const AUDITABLE_FIELDS = [
 const VALID_TYPES: R2BucketType[] = ['images', 'multimedia', 'clips', 'social'];
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { authorized } = await isAuthorizedOwnerOrAdmin(request);
+  const { authorized } = await isAuthorizedRoute(request);
   if (!authorized) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
@@ -38,7 +38,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 }
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { authorized, user } = await isAuthorizedOwnerOrAdmin(request);
+  const { authorized, user } = await isAuthorizedRoute(request);
   if (!authorized || !user) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
@@ -132,7 +132,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { authorized, user } = await isAuthorizedOwnerOrAdmin(request);
+  const { authorized, user } = await isAuthorizedRoute(request);
   if (!authorized || !user) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }

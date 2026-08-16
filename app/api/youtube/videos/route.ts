@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import { getYouTubeVideos } from '@/lib/youtube';
 
 export async function GET(request: Request) {
-  const { authorized } = await isAuthorizedAdmin(request);
+  const { authorized } = await isAuthorizedRoute(request);
   if (!authorized) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }

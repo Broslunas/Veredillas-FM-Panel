@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
+import type { PermissionOverrides } from '@/lib/permissions';
 
 export interface IUser extends Document {
   _id: mongoose.Types.ObjectId;
@@ -9,6 +10,8 @@ export interface IUser extends Document {
   picture?: string;
   bio?: string;
   role: 'user' | 'editor' | 'admin' | 'owner';
+  /** Per-section overrides on top of the role defaults. See lib/permissions.ts */
+  permissions?: PermissionOverrides;
   favorites?: string[];
   listeningTime?: number;
   completedEpisodes?: string[];
@@ -37,6 +40,7 @@ const userSchema = new Schema<IUser>(
     picture: { type: String },
     bio: { type: String, maxlength: 500 },
     role: { type: String, enum: ['user', 'editor', 'admin', 'owner'], default: 'user' },
+    permissions: { type: Schema.Types.Mixed, default: undefined },
     favorites: { type: [String], default: [] },
     listeningTime: { type: Number, default: 0 },
     completedEpisodes: { type: [String], default: [] },

@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import { getDeepgramAdminStats } from '@/lib/deepgram';
 
 export async function GET(request: Request) {
   try {
-    const { authorized, user } = await isAuthorizedAdmin(request);
+    const { authorized, user } = await isAuthorizedRoute(request);
 
     if (!authorized || !user) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 });

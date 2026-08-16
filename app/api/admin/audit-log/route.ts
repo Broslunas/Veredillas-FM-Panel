@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { isAuthorizedOwnerOrAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import dbConnect from '@/lib/mongodb';
 import AuditLog from '@/models/AuditLog';
 
 const PAGE_SIZE = 30;
 
 export async function GET(request: Request) {
-  const { authorized } = await isAuthorizedOwnerOrAdmin(request);
+  const { authorized } = await isAuthorizedRoute(request);
   if (!authorized) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }

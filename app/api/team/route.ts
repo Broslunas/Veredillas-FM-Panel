@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import Team from '@/models/Team';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import { logAudit } from '@/lib/audit-log';
 
 export async function GET(request: Request) {
-  const { authorized } = await isAuthorizedAdmin(request);
+  const { authorized } = await isAuthorizedRoute(request);
   if (!authorized) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
@@ -32,7 +32,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const { authorized, user } = await isAuthorizedAdmin(request);
+  const { authorized, user } = await isAuthorizedRoute(request);
   if (!authorized || !user) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }

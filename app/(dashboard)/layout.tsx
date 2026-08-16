@@ -30,8 +30,16 @@ import {
   CalendarDays,
   Images,
   History,
+  Lock,
 } from 'lucide-react';
 import CommandPalette from '@/components/dashboard/CommandPalette';
+import {
+  PermissionMap,
+  PermissionSection,
+  can,
+  sectionForPage,
+  sectionLabel,
+} from '@/lib/permissions';
 
 interface UserSession {
   id: string;
@@ -39,12 +47,15 @@ interface UserSession {
   email: string;
   picture?: string;
   role: 'admin' | 'owner' | 'editor' | 'user';
+  permissions: PermissionMap;
 }
 
 interface NavItem {
   label: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
+  /** Hidden unless the user has at least read access on this section. */
+  section?: PermissionSection;
   isPopUp?: boolean;
   action?: () => void;
 }
@@ -137,56 +148,49 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const navGroups: { title: string; items: NavItem[] }[] = [
+  const allNavGroups: { title: string; items: NavItem[] }[] = [
     {
       title: 'General',
       items: [
         { label: 'Visión General', href: '/', icon: LayoutDashboard },
-        { label: 'En Vivo', href: '/live', icon: Activity },
-        { label: 'Calendario', href: '/calendar', icon: CalendarDays },
+        { label: 'En Vivo', href: '/live', icon: Activity, section: 'live' },
+        { label: 'Calendario', href: '/calendar', icon: CalendarDays, section: 'episodes' },
       ],
     },
     {
       title: 'Contenido & Redes',
       items: [
-        { label: 'Episodios', href: '/episodes', icon: Radio },
-        { label: 'Blog', href: '/blog', icon: FileText },
-        { label: 'Galería', href: '/gallery', icon: Images },
-        { label: 'YouTube Studio', href: '/youtube', icon: YoutubeIcon },
-        { label: 'Highlights Studio', href: '/social-clips', icon: Video },
-        { label: 'Social Publisher', href: '/buffer', icon: Share2 },
-        ...(user?.role === 'admin' || user?.role === 'owner'
-          ? [
-              { label: 'Buckets R2', href: '/admin/buckets', icon: HardDrive },
-            ]
-          : []),
+        { label: 'Episodios', href: '/episodes', icon: Radio, section: 'episodes' },
+        { label: 'Blog', href: '/blog', icon: FileText, section: 'blog' },
+        { label: 'Galería', href: '/gallery', icon: Images, section: 'gallery' },
+        { label: 'YouTube Studio', href: '/youtube', icon: YoutubeIcon, section: 'youtube' },
+        { label: 'Highlights Studio', href: '/social-clips', icon: Video, section: 'social' },
+        { label: 'Social Publisher', href: '/buffer', icon: Share2, section: 'social' },
+        { label: 'Buckets R2', href: '/admin/buckets', icon: HardDrive, section: 'buckets' },
       ],
     },
     {
       title: 'Comunidad & Gestión',
       items: [
-        ...(user?.role !== 'editor' ? [{ label: 'Usuarios', href: '/users', icon: Users }] : []),
-        { label: 'Comentarios', href: '/comments', icon: MessageSquare },
-        { label: 'Entrevistas', href: '/interviews', icon: Calendar },
-        { label: 'Invitados', href: '/guests', icon: UserCheck },
-        { label: 'Equipo', href: '/team', icon: Users },
-        { label: 'Papelera', href: '/trash', icon: Trash2 },
+        { label: 'Usuarios', href: '/users', icon: Users, section: 'users' },
+        { label: 'Comentarios', href: '/comments', icon: MessageSquare, section: 'comments' },
+        { label: 'Entrevistas', href: '/interviews', icon: Calendar, section: 'interviews' },
+        { label: 'Invitados', href: '/guests', icon: UserCheck, section: 'guests' },
+        { label: 'Equipo', href: '/team', icon: Users, section: 'team' },
+        { label: 'Papelera', href: '/trash', icon: Trash2, section: 'trash' },
       ],
     },
     {
       title: 'Analíticas & API',
       items: [
-        { label: 'Analíticas', href: '/user-stats', icon: BarChart3 },
-        ...(user?.role === 'admin' || user?.role === 'owner'
-          ? [
-              { label: 'Deepgram Admin', href: '/deepgram-stats', icon: Cpu },
-              { label: 'Registro de Auditoría', href: '/admin/audit-log', icon: History },
-            ]
-          : []),
+        { label: 'Analíticas', href: '/user-stats', icon: BarChart3, section: 'analytics' },
+        { label: 'Deepgram Admin', href: '/deepgram-stats', icon: Cpu, section: 'deepgram' },
+        { label: 'Registro de Auditoría', href: '/admin/audit-log', icon: History, section: 'audit' },
         {
           label: 'Broslytics ↗',
           href: '#',
           icon: ExternalLink,
+          section: 'analytics',
           isPopUp: true,
           action: () => {
             window.open(
@@ -199,6 +203,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       ],
     },
   ];
+
+  const navGroups = allNavGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.section || can(user?.permissions, item.section)),
+    }))
+    .filter((group) => group.items.length > 0);
+
+  const currentSection = sectionForPage(pathname);
+  const sectionBlocked = currentSection ? !can(user?.permissions, currentSection) : false;
 
   return (
     <div className="h-screen overflow-hidden bg-zinc-950 text-zinc-100 flex flex-col md:flex-row">
@@ -359,9 +373,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* MAIN CONTENT AREA (INDEPENDENT SCROLL) */}
-      <main className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">{children}</main>
+      <main className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
+        {sectionBlocked && currentSection ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
+            <div className="w-12 h-12 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div className="space-y-1">
+              <h2 className="text-base font-bold text-zinc-100">Sección restringida</h2>
+              <p className="text-xs text-zinc-400 max-w-sm">
+                Tu cuenta no tiene acceso a{' '}
+                <span className="text-zinc-200 font-medium">{sectionLabel(currentSection)}</span>. Pide a un
+                administrador que ajuste tus permisos si necesitas entrar.
+              </p>
+            </div>
+            <Link
+              href="/"
+              className="text-xs font-medium text-indigo-400 hover:text-indigo-300 transition"
+            >
+              Volver a Visión General
+            </Link>
+          </div>
+        ) : (
+          children
+        )}
+      </main>
 
-      <CommandPalette navGroups={navGroups} />
+      <CommandPalette navGroups={navGroups} permissions={user?.permissions} />
     </div>
   );
 }

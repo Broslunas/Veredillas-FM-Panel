@@ -4,7 +4,7 @@ import EpisodeContent from '@/models/EpisodeContent';
 import BlogPost from '@/models/BlogPost';
 import Guest from '@/models/Guest';
 import Team from '@/models/Team';
-import { isAuthorizedAdmin, isAuthorizedOwnerOrAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import { logAudit } from '@/lib/audit-log';
 
 const COLLECTION_MODELS: Record<string, any> = {
@@ -29,7 +29,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ collection: string; id: string }> }
 ) {
-  const { authorized, user } = await isAuthorizedAdmin(request);
+  const { authorized, user } = await isAuthorizedRoute(request);
   if (!authorized || !user) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
@@ -62,9 +62,18 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ collection: string; id: string }> }
 ) {
-  const { authorized, user } = await isAuthorizedOwnerOrAdmin(request);
+  const { authorized, user } = await isAuthorizedRoute(request);
   if (!authorized || !user) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
+  }
+
+  // Restoring is enough for editors; wiping an item for good stays admin-only
+  // regardless of the permissions granted on the Papelera section.
+  if (user.role !== 'admin' && user.role !== 'owner') {
+    return NextResponse.json(
+      { error: 'Solo administradores pueden eliminar definitivamente' },
+      { status: 403 }
+    );
   }
 
   const { collection, id } = await params;

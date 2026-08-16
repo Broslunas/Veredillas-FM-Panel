@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import { resolveR2ObjectFromUrl } from '@/lib/r2';
 import { getEpisodeWithTrack, saveTrack } from '@/lib/dubbing/store';
 
@@ -18,7 +18,7 @@ interface PlacementInput {
  * JSON body only, no file ever passes through it.
  */
 export async function POST(request: Request) {
-  const { authorized } = await isAuthorizedAdmin(request);
+  const { authorized } = await isAuthorizedRoute(request);
   if (!authorized) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }

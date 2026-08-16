@@ -1,19 +1,16 @@
 import { NextResponse } from 'next/server';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import dbConnect from '@/lib/mongodb';
 import User from '@/models/User';
 import { buildFieldChanges, logAudit } from '@/lib/audit-log';
+import { resolvePermissions, sanitizeOverrides } from '@/lib/permissions';
 
 // ── GET: List and filter users ──
 export async function GET(request: Request) {
   try {
-    const { authorized, user: currentUser } = await isAuthorizedAdmin(request);
+    const { authorized, user: currentUser } = await isAuthorizedRoute(request);
     if (!authorized || !currentUser) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
-    }
-
-    if (currentUser.role === 'editor') {
-      return NextResponse.json({ error: 'Los editores no tienen permisos para ver ni gestionar usuarios' }, { status: 403 });
+      return NextResponse.json({ error: 'Sin permisos sobre la sección Usuarios' }, { status: 403 });
     }
 
     await dbConnect();
@@ -64,18 +61,26 @@ export async function GET(request: Request) {
 // ── PUT: Update user details / role / newsletter ──
 export async function PUT(request: Request) {
   try {
-    const { authorized, user: currentUser } = await isAuthorizedAdmin(request);
+    const { authorized, user: currentUser } = await isAuthorizedRoute(request);
     if (!authorized || !currentUser) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
-    }
-
-    if (currentUser.role === 'editor') {
-      return NextResponse.json({ error: 'Los editores no tienen permisos para modificar usuarios' }, { status: 403 });
+      return NextResponse.json({ error: 'Sin permisos para modificar usuarios' }, { status: 403 });
     }
 
     await dbConnect();
     const body = await request.json();
-    const { userId, name, email, role, bio, newsletter, listeningTime, currentStreak, maxStreak, favorites } = body;
+    const {
+      userId,
+      name,
+      email,
+      role,
+      bio,
+      newsletter,
+      listeningTime,
+      currentStreak,
+      maxStreak,
+      favorites,
+      permissions,
+    } = body;
 
     if (!userId) {
       return NextResponse.json({ error: 'Falta userId' }, { status: 400 });
@@ -94,6 +99,7 @@ export async function PUT(request: Request) {
     }
 
     const updateData: any = {};
+    let clearPermissions = false;
     if (name) updateData.name = name;
     if (email) updateData.email = email;
     if (role && (role === 'user' || role === 'editor' || role === 'admin' || role === 'owner')) {
@@ -110,7 +116,35 @@ export async function PUT(request: Request) {
     if (maxStreak !== undefined) updateData.maxStreak = maxStreak;
     if (Array.isArray(favorites)) updateData.favorites = favorites;
 
-    const updatedUser = await User.findByIdAndUpdate(userId, updateData, { new: true }).select('-__v');
+    if (permissions !== undefined) {
+      // Owners always keep full access, so their overrides are never stored.
+      if (userBefore.role === 'owner') {
+        return NextResponse.json(
+          { error: 'El propietario siempre conserva acceso completo' },
+          { status: 403 }
+        );
+      }
+      if (userBefore.role === 'admin' && currentUser.role !== 'owner') {
+        return NextResponse.json(
+          { error: 'Solo el propietario puede ajustar los permisos de un administrador' },
+          { status: 403 }
+        );
+      }
+      const clean = sanitizeOverrides(permissions);
+      if (Object.keys(clean).length > 0) {
+        updateData.permissions = clean;
+      } else {
+        clearPermissions = true;
+      }
+    }
+
+    const updateOps: any = {};
+    if (Object.keys(updateData).length > 0) updateOps.$set = updateData;
+    // `$set: { permissions: undefined }` is a no-op in Mongoose, so going back
+    // to the plain role defaults needs an explicit $unset.
+    if (clearPermissions) updateOps.$unset = { permissions: 1 };
+
+    const updatedUser = await User.findByIdAndUpdate(userId, updateOps, { new: true }).select('-__v');
 
     if (updateData.role && updateData.role !== userBefore.role) {
       await logAudit({
@@ -123,10 +157,26 @@ export async function PUT(request: Request) {
       });
     }
 
+    if (permissions !== undefined) {
+      const before = resolvePermissions(userBefore.role, userBefore.permissions);
+      const after = resolvePermissions(updateData.role || userBefore.role, updateData.permissions);
+      const sectionChanges = buildFieldChanges(before, after, Object.keys(after));
+      if (Object.keys(sectionChanges).length > 0) {
+        await logAudit({
+          actor: currentUser,
+          action: 'update',
+          resource: 'user_permissions',
+          resourceId: userId,
+          label: updatedUser?.name || userBefore.name,
+          changes: sectionChanges,
+        });
+      }
+    }
+
     const otherChanges = buildFieldChanges(
       userBefore,
       updateData,
-      Object.keys(updateData).filter((key) => key !== 'role')
+      Object.keys(updateData).filter((key) => key !== 'role' && key !== 'permissions')
     );
     if (Object.keys(otherChanges).length > 0) {
       await logAudit({
@@ -166,13 +216,9 @@ export async function PUT(request: Request) {
 // ── DELETE: Delete single or multiple users ──
 export async function DELETE(request: Request) {
   try {
-    const { authorized, user: currentUser } = await isAuthorizedAdmin(request);
+    const { authorized, user: currentUser } = await isAuthorizedRoute(request);
     if (!authorized || !currentUser) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
-    }
-
-    if (currentUser.role === 'editor') {
-      return NextResponse.json({ error: 'Los editores no tienen permisos para eliminar usuarios' }, { status: 403 });
+      return NextResponse.json({ error: 'Sin permisos para eliminar usuarios' }, { status: 403 });
     }
 
     await dbConnect();

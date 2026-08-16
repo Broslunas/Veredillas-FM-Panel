@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import { synthesizeSpeechWav, DeepgramTextTooLongError } from '@/lib/deepgram';
 import { getBucketByType, getS3ClientForBucket } from '@/lib/r2';
 import { parseWav, encodeMonoPcm16ToWav, DEFAULT_DUB_SAMPLE_RATE } from '@/lib/dubbing/audio';
@@ -50,7 +50,7 @@ async function synthesizeWithRetry(text: string, voice: string): Promise<Buffer>
 }
 
 export async function POST(request: Request) {
-  const { authorized } = await isAuthorizedAdmin(request);
+  const { authorized } = await isAuthorizedRoute(request);
   if (!authorized) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }

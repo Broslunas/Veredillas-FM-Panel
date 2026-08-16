@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import { translateDubSegments } from '@/lib/gemini';
 import { getEpisodeWithTrack, saveTrack } from '@/lib/dubbing/store';
 
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
-  const { authorized } = await isAuthorizedAdmin(request);
+  const { authorized } = await isAuthorizedRoute(request);
   if (!authorized) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }

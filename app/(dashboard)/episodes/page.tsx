@@ -4,6 +4,7 @@ import React, { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, Search, Radio, Trash2, Edit2, Loader2, Sparkles } from 'lucide-react';
+import BulkActionsBar from '@/components/BulkActionsBar';
 
 type StatusFilter = 'all' | 'draft' | 'published';
 
@@ -33,6 +34,7 @@ function EpisodesListContent() {
   );
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const fetchEpisodes = async (query = '', status: StatusFilter = 'all') => {
     setLoading(true);
@@ -44,6 +46,8 @@ function EpisodesListContent() {
       if (res.ok) {
         const data = await res.json();
         setEpisodes(data);
+        // Drop selections that are no longer in the visible result set.
+        setSelectedIds((prev) => prev.filter((id) => data.some((ep: any) => ep._id === id)));
       }
     } catch (err) {
       console.error('Error fetching episodes:', err);
@@ -62,6 +66,10 @@ function EpisodesListContent() {
     if (status === 'all') params.delete('status');
     else params.set('status', status);
     router.replace(`/episodes${params.toString() ? `?${params.toString()}` : ''}`, { scroll: false });
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   };
 
   const handleDelete = async (id: string) => {
@@ -154,13 +162,37 @@ function EpisodesListContent() {
           </Link>
         </div>
       ) : (
+        <>
+        <BulkActionsBar
+          collection="episodes"
+          selectedIds={selectedIds}
+          totalCount={episodes.length}
+          actions={['publish', 'unpublish', 'tag_add', 'tag_remove', 'delete']}
+          onClear={() => setSelectedIds([])}
+          onSelectAll={() => setSelectedIds(episodes.map((ep) => ep._id))}
+          onDone={() => {
+            setSelectedIds([]);
+            fetchEpisodes(search, statusFilter);
+          }}
+          deleteWarning="¿Mover {count} episodio(s) a la papelera? Podrás restaurarlos más tarde."
+        />
+
         <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-xl divide-y divide-zinc-800/60 overflow-hidden">
           {episodes.map((ep) => (
             <div
               key={ep._id}
-              className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-zinc-900/80 transition"
+              className={`p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition ${
+                selectedIds.includes(ep._id) ? 'bg-indigo-950/30' : 'hover:bg-zinc-900/80'
+              }`}
             >
               <div className="flex items-center gap-3 min-w-0">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(ep._id)}
+                  onChange={() => toggleSelect(ep._id)}
+                  aria-label={`Seleccionar ${ep.title}`}
+                  className="rounded border-zinc-700 bg-zinc-900 accent-indigo-600 shrink-0"
+                />
                 {ep.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -204,6 +236,18 @@ function EpisodesListContent() {
                       </>
                     )}
                   </div>
+                  {ep.tags?.length > 0 && (
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {ep.tags.map((tag: string) => (
+                        <span
+                          key={tag}
+                          className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800/80 border border-zinc-700/60 text-zinc-400"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -233,6 +277,7 @@ function EpisodesListContent() {
             </div>
           ))}
         </div>
+        </>
       )}
     </div>
   );

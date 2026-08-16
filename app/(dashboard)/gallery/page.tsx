@@ -3,12 +3,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Plus, Search, Images, Trash2, Edit2, Loader2, Star, Video, ImageIcon } from 'lucide-react';
+import BulkActionsBar from '@/components/BulkActionsBar';
 
 export default function GalleryListPage() {
   const [categories, setCategories] = useState<any[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const fetchCategories = async (query = '') => {
     setLoading(true);
@@ -17,6 +19,7 @@ export default function GalleryListPage() {
       if (res.ok) {
         const data = await res.json();
         setCategories(data);
+        setSelectedIds((prev) => prev.filter((id) => data.some((cat: any) => cat._id === id)));
       }
     } catch (err) {
       console.error('Error fetching gallery categories:', err);
@@ -33,6 +36,10 @@ export default function GalleryListPage() {
     () => categories.reduce((sum, cat) => sum + (cat.images?.length || 0), 0),
     [categories]
   );
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+  };
 
   const handleDelete = async (id: string, category: string) => {
     if (!confirm(`¿Eliminar la categoría "${category}" y todos sus elementos? Esta acción no se puede deshacer.`)) return;
@@ -104,6 +111,21 @@ export default function GalleryListPage() {
           </Link>
         </div>
       ) : (
+        <>
+        <BulkActionsBar
+          collection="gallery"
+          selectedIds={selectedIds}
+          totalCount={categories.length}
+          actions={['delete']}
+          onClear={() => setSelectedIds([])}
+          onSelectAll={() => setSelectedIds(categories.map((cat) => cat._id))}
+          onDone={() => {
+            setSelectedIds([]);
+            fetchCategories(search);
+          }}
+          deleteWarning="¿Eliminar {count} categoría(s) y todos sus elementos? Esta acción no se puede deshacer."
+        />
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {categories.map((cat) => {
             const cover = cat.images?.find((img: any) => img.featured) || cat.images?.[0];
@@ -113,9 +135,22 @@ export default function GalleryListPage() {
             return (
               <div
                 key={cat._id}
-                className="bg-zinc-900/40 border border-zinc-800/80 rounded-xl overflow-hidden hover:border-zinc-700/80 transition flex flex-col"
+                className={`bg-zinc-900/40 border rounded-xl overflow-hidden transition flex flex-col ${
+                  selectedIds.includes(cat._id)
+                    ? 'border-indigo-600/80 ring-1 ring-indigo-600/40'
+                    : 'border-zinc-800/80 hover:border-zinc-700/80'
+                }`}
               >
                 <div className="relative h-32 bg-zinc-950 border-b border-zinc-800/80 flex items-center justify-center overflow-hidden">
+                  <label className="absolute top-2 left-2 z-10 bg-zinc-950/80 border border-zinc-700 rounded-md p-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(cat._id)}
+                      onChange={() => toggleSelect(cat._id)}
+                      aria-label={`Seleccionar ${cat.category}`}
+                      className="rounded border-zinc-700 bg-zinc-900 accent-indigo-600 block"
+                    />
+                  </label>
                   {cover ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -179,6 +214,7 @@ export default function GalleryListPage() {
             );
           })}
         </div>
+        </>
       )}
     </div>
   );

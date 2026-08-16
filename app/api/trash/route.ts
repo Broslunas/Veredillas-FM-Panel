@@ -4,7 +4,7 @@ import EpisodeContent from '@/models/EpisodeContent';
 import BlogPost from '@/models/BlogPost';
 import Guest from '@/models/Guest';
 import Team from '@/models/Team';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 
 const COLLECTIONS: Record<string, { model: any; titleField: string }> = {
   episodes: { model: EpisodeContent, titleField: 'title' },
@@ -14,7 +14,7 @@ const COLLECTIONS: Record<string, { model: any; titleField: string }> = {
 };
 
 export async function GET(request: Request) {
-  const { authorized } = await isAuthorizedAdmin(request);
+  const { authorized } = await isAuthorizedRoute(request);
   if (!authorized) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }

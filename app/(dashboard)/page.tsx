@@ -6,6 +6,7 @@ import { Radio, FileText, Users, HardDrive, Plus, ArrowUpRight, Loader2, Sparkle
 import IntegrationStatusWidget from '@/components/dashboard/IntegrationStatusWidget';
 import PendingCommentsWidget from '@/components/dashboard/PendingCommentsWidget';
 import PendingTasksWidget from '@/components/dashboard/PendingTasksWidget';
+import { PermissionMap, can } from '@/lib/permissions';
 
 export default function DashboardOverviewPage() {
   const [stats, setStats] = useState({
@@ -14,7 +15,7 @@ export default function DashboardOverviewPage() {
     guests: 0,
     files: 0,
   });
-  const [userRole, setUserRole] = useState<string | null>(null);
+  const [permissions, setPermissions] = useState<PermissionMap | null>(null);
   const [recentEpisodes, setRecentEpisodes] = useState<any[]>([]);
   const [allEpisodes, setAllEpisodes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,7 +33,7 @@ export default function DashboardOverviewPage() {
 
         if (meRes.ok) {
           const meData = await meRes.json();
-          setUserRole(meData.user?.role || null);
+          setPermissions(meData.user?.permissions || null);
         }
 
         const episodes = epRes.ok ? await epRes.json() : [];
@@ -69,11 +70,11 @@ export default function DashboardOverviewPage() {
   }
 
   const statCards = [
-    { label: 'Episodios', count: stats.episodes, icon: Radio, href: '/episodes', color: 'text-indigo-400' },
-    { label: 'Artículos de Blog', count: stats.blog, icon: FileText, href: '/blog', color: 'text-emerald-400' },
-    { label: 'Invitados', count: stats.guests, icon: Users, href: '/guests', color: 'text-purple-400' },
-    ...(userRole !== 'editor' ? [{ label: 'Archivos R2', count: stats.files, icon: HardDrive, href: '/admin/buckets', color: 'text-amber-400' }] : []),
-  ];
+    { label: 'Episodios', count: stats.episodes, icon: Radio, href: '/episodes', color: 'text-indigo-400', section: 'episodes' as const },
+    { label: 'Artículos de Blog', count: stats.blog, icon: FileText, href: '/blog', color: 'text-emerald-400', section: 'blog' as const },
+    { label: 'Invitados', count: stats.guests, icon: Users, href: '/guests', color: 'text-purple-400', section: 'guests' as const },
+    { label: 'Archivos R2', count: stats.files, icon: HardDrive, href: '/admin/buckets', color: 'text-amber-400', section: 'buckets' as const },
+  ].filter((card) => can(permissions, card.section));
 
   return (
     <div className="p-6 md:p-8 space-y-8 max-w-6xl mx-auto w-full">
@@ -213,9 +214,9 @@ export default function DashboardOverviewPage() {
 
       {/* WIDGETS */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <PendingTasksWidget episodes={allEpisodes} />
-        <PendingCommentsWidget />
-        {userRole !== 'editor' && <IntegrationStatusWidget />}
+        {can(permissions, 'interviews') && <PendingTasksWidget episodes={allEpisodes} />}
+        {can(permissions, 'comments') && <PendingCommentsWidget />}
+        {can(permissions, 'buckets') && <IntegrationStatusWidget />}
       </div>
     </div>
   );

@@ -22,6 +22,8 @@ import {
   ChevronRight,
   Filter
 } from 'lucide-react';
+import PermissionsEditor from '@/components/PermissionsEditor';
+import { PermissionOverrides } from '@/lib/permissions';
 
 interface UserItem {
   _id: string;
@@ -30,6 +32,7 @@ interface UserItem {
   picture?: string;
   bio?: string;
   role: 'user' | 'editor' | 'admin' | 'owner';
+  permissions?: PermissionOverrides;
   newsletter?: boolean;
   listeningTime?: number;
   currentStreak?: number;
@@ -59,6 +62,8 @@ export default function UsersManagementPage() {
   const [editBio, setEditBio] = useState('');
   const [editRole, setEditRole] = useState<'user' | 'editor' | 'admin' | 'owner'>('user');
   const [editNewsletter, setEditNewsletter] = useState(true);
+  const [editPermissions, setEditPermissions] = useState<PermissionOverrides>({});
+  const [currentRole, setCurrentRole] = useState<string | null>(null);
   const [editHours, setEditHours] = useState('0');
   const [editMinutes, setEditMinutes] = useState('0');
   const [editSeconds, setEditSeconds] = useState('0');
@@ -92,6 +97,13 @@ export default function UsersManagementPage() {
   useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
+
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setCurrentRole(data?.user?.role || null))
+      .catch(() => setCurrentRole(null));
+  }, []);
 
   // Metric computations
   const now = useMemo(() => new Date(), []);
@@ -168,12 +180,19 @@ export default function UsersManagementPage() {
     setEditBio(user.bio || '');
     setEditRole(user.role || 'user');
     setEditNewsletter(!!user.newsletter);
+    setEditPermissions(user.permissions || {});
 
     const totalSecs = user.listeningTime || 0;
     setEditHours(Math.floor(totalSecs / 3600).toString());
     setEditMinutes(Math.floor((totalSecs % 3600) / 60).toString());
     setEditSeconds((totalSecs % 60).toString());
   };
+
+  // Owners are never restricted, and only an owner may retune an admin's reach.
+  const canEditPermissions =
+    !!selectedUserForEdit &&
+    selectedUserForEdit.role !== 'owner' &&
+    (selectedUserForEdit.role !== 'admin' || currentRole === 'owner');
 
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -198,6 +217,7 @@ export default function UsersManagementPage() {
           role: editRole,
           newsletter: editNewsletter,
           listeningTime: calculatedListeningTime,
+          ...(canEditPermissions ? { permissions: editPermissions } : {}),
         }),
       });
 
@@ -645,7 +665,7 @@ export default function UsersManagementPage() {
       {/* ── EDIT USER MODAL ── */}
       {selectedUserForEdit && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-lg w-full p-6 space-y-6 relative shadow-2xl">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-6 relative shadow-2xl">
             <button
               onClick={() => setSelectedUserForEdit(null)}
               className="absolute top-4 right-4 text-zinc-500 hover:text-zinc-300 p-1 rounded-lg bg-zinc-800/50 transition"
@@ -761,6 +781,29 @@ export default function UsersManagementPage() {
                     <span className="text-zinc-500 font-mono text-[10px]">S</span>
                   </div>
                 </div>
+              </div>
+
+              <div className="space-y-2 pt-2 border-t border-zinc-800">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-zinc-400 font-medium flex items-center gap-1.5">
+                    <ShieldAlert className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Permisos por sección</span>
+                  </label>
+                </div>
+
+                {canEditPermissions ? (
+                  <PermissionsEditor
+                    role={editRole}
+                    overrides={editPermissions}
+                    onChange={setEditPermissions}
+                  />
+                ) : (
+                  <p className="text-[11px] text-zinc-500 bg-zinc-950 border border-zinc-800 rounded-lg p-3">
+                    {selectedUserForEdit.role === 'owner'
+                      ? 'El propietario siempre conserva acceso completo a todas las secciones.'
+                      : 'Solo el propietario puede ajustar los permisos de un administrador.'}
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-4 border-t border-zinc-800">

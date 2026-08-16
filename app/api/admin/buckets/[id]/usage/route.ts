@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { isAuthorizedOwnerOrAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import dbConnect from '@/lib/mongodb';
 import R2Bucket from '@/models/R2Bucket';
 import { getBucketUsage } from '@/lib/r2';
 import { checkAndSendStorageAlert } from '@/lib/storage-alerts';
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { authorized } = await isAuthorizedOwnerOrAdmin(request);
+  const { authorized } = await isAuthorizedRoute(request);
   if (!authorized) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }

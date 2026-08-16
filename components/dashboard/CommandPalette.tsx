@@ -2,12 +2,14 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Radio, FileText, UserCheck, Plus, CornerDownLeft } from 'lucide-react';
+import { Search, Radio, FileText, UserCheck, Users, Images, Plus, CornerDownLeft } from 'lucide-react';
+import { PermissionMap, PermissionSection, can } from '@/lib/permissions';
 
 interface NavItem {
   label: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
+  section?: PermissionSection;
   isPopUp?: boolean;
   action?: () => void;
 }
@@ -19,6 +21,7 @@ interface NavGroup {
 
 interface CommandPaletteProps {
   navGroups: NavGroup[];
+  permissions?: PermissionMap | null;
 }
 
 interface Command {
@@ -30,30 +33,101 @@ interface Command {
   onSelect: () => void;
 }
 
-const QUICK_ACTIONS: NavItem[] = [
-  { label: 'Nuevo Episodio', href: '/episodes/new', icon: Plus },
-  { label: 'Nuevo Artículo de Blog', href: '/blog/new', icon: Plus },
-  { label: 'Nuevo Invitado', href: '/guests/new', icon: Plus },
+interface SearchSource {
+  key: string;
+  section: PermissionSection;
+  endpoint: string;
+  group: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: (item: any) => string;
+  sublabel: (item: any) => string;
+  href: (item: any) => string;
+}
+
+const QUICK_ACTIONS: { label: string; href: string; section: PermissionSection }[] = [
+  { label: 'Nuevo Episodio', href: '/episodes/new', section: 'episodes' },
+  { label: 'Nuevo Artículo de Blog', href: '/blog/new', section: 'blog' },
+  { label: 'Nuevo Invitado', href: '/guests/new', section: 'guests' },
 ];
 
-export default function CommandPalette({ navGroups }: CommandPaletteProps) {
+function formatDate(value?: string): string {
+  return value ? new Date(value).toLocaleDateString('es-ES') : '';
+}
+
+const SEARCH_SOURCES: SearchSource[] = [
+  {
+    key: 'episodes',
+    section: 'episodes',
+    endpoint: '/api/episodes',
+    group: 'Episodios',
+    icon: Radio,
+    label: (item) => item.title,
+    sublabel: (item) => [item.status === 'draft' ? 'Borrador' : null, formatDate(item.pubDate)].filter(Boolean).join(' · '),
+    href: (item) => `/episodes/${item._id}`,
+  },
+  {
+    key: 'blog',
+    section: 'blog',
+    endpoint: '/api/blog',
+    group: 'Blog',
+    icon: FileText,
+    label: (item) => item.title,
+    sublabel: (item) => [item.author, formatDate(item.pubDate)].filter(Boolean).join(' · '),
+    href: (item) => `/blog/${item._id}`,
+  },
+  {
+    key: 'guests',
+    section: 'guests',
+    endpoint: '/api/guests',
+    group: 'Invitados',
+    icon: UserCheck,
+    label: (item) => item.name,
+    sublabel: (item) => item.role || 'Invitado',
+    href: (item) => `/guests/${item._id}`,
+  },
+  {
+    key: 'gallery',
+    section: 'gallery',
+    endpoint: '/api/gallery',
+    group: 'Galería',
+    icon: Images,
+    label: (item) => item.category,
+    sublabel: (item) => `${item.images?.length || 0} elemento(s)`,
+    href: (item) => `/gallery/${item._id}`,
+  },
+  {
+    key: 'team',
+    section: 'team',
+    endpoint: '/api/team',
+    group: 'Equipo',
+    icon: Users,
+    label: (item) => item.name,
+    sublabel: (item) => [item.role, item.schoolYear].filter(Boolean).join(' · '),
+    href: (item) => `/team/${item._id}`,
+  },
+];
+
+const RESULTS_PER_SOURCE = 4;
+
+export default function CommandPalette({ navGroups, permissions }: CommandPaletteProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
-  const [searchResults, setSearchResults] = useState<{ episodes: any[]; blog: any[]; guests: any[] }>({
-    episodes: [],
-    blog: [],
-    guests: [],
-  });
+  const [searchResults, setSearchResults] = useState<Record<string, any[]>>({});
   const [searching, setSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const sources = useMemo(
+    () => SEARCH_SOURCES.filter((source) => can(permissions, source.section)),
+    [permissions]
+  );
+
   const close = () => {
     setOpen(false);
     setQuery('');
-    setSearchResults({ episodes: [], blog: [], guests: [] });
+    setSearchResults({});
   };
 
   useEffect(() => {
@@ -78,30 +152,27 @@ export default function CommandPalette({ navGroups }: CommandPaletteProps) {
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (query.trim().length < 2) {
-      setSearchResults({ episodes: [], blog: [], guests: [] });
+      setSearchResults({});
+      setSearching(false);
       return;
     }
     setSearching(true);
     debounceRef.current = setTimeout(async () => {
+      const q = encodeURIComponent(query.trim());
       try {
-        const q = encodeURIComponent(query.trim());
-        const [epRes, blogRes, guestRes] = await Promise.all([
-          fetch(`/api/episodes?q=${q}`),
-          fetch(`/api/blog?q=${q}`),
-          fetch(`/api/guests?q=${q}`),
-        ]);
-        const [episodes, blog, guests] = await Promise.all([
-          epRes.ok ? epRes.json() : [],
-          blogRes.ok ? blogRes.json() : [],
-          guestRes.ok ? guestRes.json() : [],
-        ]);
-        setSearchResults({
-          episodes: (episodes || []).slice(0, 5),
-          blog: (blog || []).slice(0, 5),
-          guests: (guests || []).slice(0, 5),
-        });
-      } catch {
-        // ignore transient search errors
+        const responses = await Promise.all(
+          sources.map(async (source) => {
+            try {
+              const res = await fetch(`${source.endpoint}?q=${q}`);
+              if (!res.ok) return [source.key, []] as const;
+              const data = await res.json();
+              return [source.key, Array.isArray(data) ? data.slice(0, RESULTS_PER_SOURCE) : []] as const;
+            } catch {
+              return [source.key, []] as const;
+            }
+          })
+        );
+        setSearchResults(Object.fromEntries(responses));
       } finally {
         setSearching(false);
       }
@@ -109,7 +180,7 @@ export default function CommandPalette({ navGroups }: CommandPaletteProps) {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query]);
+  }, [query, sources]);
 
   const navigate = (href: string) => {
     close();
@@ -122,15 +193,17 @@ export default function CommandPalette({ navGroups }: CommandPaletteProps) {
 
     const matchesQuery = (label: string) => q.length === 0 || label.toLowerCase().includes(q);
 
-    QUICK_ACTIONS.filter((item) => matchesQuery(item.label)).forEach((item) => {
-      list.push({
-        key: `quick-${item.href}`,
-        label: item.label,
-        icon: item.icon,
-        group: 'Acciones Rápidas',
-        onSelect: () => navigate(item.href),
-      });
-    });
+    QUICK_ACTIONS.filter((item) => can(permissions, item.section, 'write') && matchesQuery(item.label)).forEach(
+      (item) => {
+        list.push({
+          key: `quick-${item.href}`,
+          label: item.label,
+          icon: Plus,
+          group: 'Acciones Rápidas',
+          onSelect: () => navigate(item.href),
+        });
+      }
+    );
 
     navGroups.forEach((group) => {
       group.items.filter((item) => matchesQuery(item.label)).forEach((item) => {
@@ -151,41 +224,21 @@ export default function CommandPalette({ navGroups }: CommandPaletteProps) {
       });
     });
 
-    searchResults.episodes.forEach((ep) => {
-      list.push({
-        key: `ep-${ep._id}`,
-        label: ep.title,
-        sublabel: 'Episodio',
-        icon: Radio,
-        group: 'Episodios',
-        onSelect: () => navigate(`/episodes/${ep._id}`),
-      });
-    });
-
-    searchResults.blog.forEach((post) => {
-      list.push({
-        key: `blog-${post._id}`,
-        label: post.title,
-        sublabel: 'Blog',
-        icon: FileText,
-        group: 'Blog',
-        onSelect: () => navigate(`/blog/${post._id}`),
-      });
-    });
-
-    searchResults.guests.forEach((guest) => {
-      list.push({
-        key: `guest-${guest._id}`,
-        label: guest.name,
-        sublabel: 'Invitado',
-        icon: UserCheck,
-        group: 'Invitados',
-        onSelect: () => navigate(`/guests/${guest._id}`),
+    sources.forEach((source) => {
+      (searchResults[source.key] || []).forEach((item) => {
+        list.push({
+          key: `${source.key}-${item._id}`,
+          label: source.label(item) || '(sin título)',
+          sublabel: source.sublabel(item),
+          icon: source.icon,
+          group: source.group,
+          onSelect: () => navigate(source.href(item)),
+        });
       });
     });
 
     return list;
-  }, [query, navGroups, searchResults]);
+  }, [query, navGroups, searchResults, sources, permissions]);
 
   useEffect(() => {
     setActiveIndex(0);
@@ -232,9 +285,10 @@ export default function CommandPalette({ navGroups }: CommandPaletteProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Buscar episodios, blog, invitados o navegar..."
+            placeholder="Buscar contenido o navegar por el panel..."
             className="flex-1 bg-transparent text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none"
           />
+          {searching && <span className="text-[10px] font-mono text-zinc-500">Buscando…</span>}
           <kbd className="text-[10px] font-mono text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">Esc</kbd>
         </div>
 
@@ -262,7 +316,11 @@ export default function CommandPalette({ navGroups }: CommandPaletteProps) {
                     >
                       <Icon className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
                       <span className="truncate flex-1">{cmd.label}</span>
-                      {cmd.sublabel && <span className="text-[10px] text-zinc-500 font-mono shrink-0">{cmd.sublabel}</span>}
+                      {cmd.sublabel && (
+                        <span className="text-[10px] text-zinc-500 font-mono shrink-0 truncate max-w-[45%]">
+                          {cmd.sublabel}
+                        </span>
+                      )}
                       {isActive && <CornerDownLeft className="w-3 h-3 text-zinc-500 shrink-0" />}
                     </button>
                   );

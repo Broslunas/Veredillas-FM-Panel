@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import dbConnect from '@/lib/mongodb';
 import InterviewRequest from '@/models/InterviewRequest';
 import User from '@/models/User';
@@ -9,7 +9,7 @@ import { buildFieldChanges, logAudit } from '@/lib/audit-log';
 // ── GET: Fetch all interview requests & registered users ──
 export async function GET(request: Request) {
   try {
-    const { authorized } = await isAuthorizedAdmin(request);
+    const { authorized } = await isAuthorizedRoute(request);
     if (!authorized) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }
@@ -33,7 +33,7 @@ export async function GET(request: Request) {
 // ── POST: Create new interview request / invitation ──
 export async function POST(request: Request) {
   try {
-    const { authorized, user } = await isAuthorizedAdmin(request);
+    const { authorized, user } = await isAuthorizedRoute(request);
     if (!authorized || !user) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }
@@ -93,7 +93,7 @@ export async function POST(request: Request) {
 // ── PATCH / PUT: Update status or details ──
 export async function PATCH(request: Request) {
   try {
-    const { authorized, user } = await isAuthorizedAdmin(request);
+    const { authorized, user } = await isAuthorizedRoute(request);
     if (!authorized || !user) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }
@@ -144,7 +144,7 @@ export async function PUT(request: Request) {
 // ── DELETE: Delete interview request by ID ──
 export async function DELETE(request: Request) {
   try {
-    const { authorized, user } = await isAuthorizedAdmin(request);
+    const { authorized, user } = await isAuthorizedRoute(request);
     if (!authorized || !user) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }

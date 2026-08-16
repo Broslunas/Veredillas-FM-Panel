@@ -3,12 +3,14 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Plus, Search, FileText, Trash2, Edit2, Loader2 } from 'lucide-react';
+import BulkActionsBar from '@/components/BulkActionsBar';
 
 export default function BlogListPage() {
   const [posts, setPosts] = useState<any[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const fetchPosts = async (query = '') => {
     setLoading(true);
@@ -17,6 +19,7 @@ export default function BlogListPage() {
       if (res.ok) {
         const data = await res.json();
         setPosts(data);
+        setSelectedIds((prev) => prev.filter((id) => data.some((post: any) => post._id === id)));
       }
     } catch (err) {
       console.error('Error fetching blog posts:', err);
@@ -28,6 +31,10 @@ export default function BlogListPage() {
   useEffect(() => {
     fetchPosts(search);
   }, [search]);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+  };
 
   const handleDelete = async (id: string) => {
     if (!confirm('¿Mover esta publicación a la papelera? Podrás restaurarla más tarde desde Papelera.')) return;
@@ -98,13 +105,37 @@ export default function BlogListPage() {
           </Link>
         </div>
       ) : (
+        <>
+        <BulkActionsBar
+          collection="blog"
+          selectedIds={selectedIds}
+          totalCount={posts.length}
+          actions={['tag_add', 'tag_remove', 'delete']}
+          onClear={() => setSelectedIds([])}
+          onSelectAll={() => setSelectedIds(posts.map((post) => post._id))}
+          onDone={() => {
+            setSelectedIds([]);
+            fetchPosts(search);
+          }}
+          deleteWarning="¿Mover {count} artículo(s) a la papelera? Podrás restaurarlos más tarde."
+        />
+
         <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-xl divide-y divide-zinc-800/60 overflow-hidden">
           {posts.map((post) => (
             <div
               key={post._id}
-              className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-zinc-900/80 transition"
+              className={`p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition ${
+                selectedIds.includes(post._id) ? 'bg-indigo-950/30' : 'hover:bg-zinc-900/80'
+              }`}
             >
               <div className="flex items-center gap-3 min-w-0">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(post._id)}
+                  onChange={() => toggleSelect(post._id)}
+                  aria-label={`Seleccionar ${post.title}`}
+                  className="rounded border-zinc-700 bg-zinc-900 accent-indigo-600 shrink-0"
+                />
                 {post.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -126,6 +157,18 @@ export default function BlogListPage() {
                     <span>&bull;</span>
                     <span>{post.pubDate ? new Date(post.pubDate).toLocaleDateString('es-ES') : ''}</span>
                   </div>
+                  {post.tags?.length > 0 && (
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {post.tags.map((tag: string) => (
+                        <span
+                          key={tag}
+                          className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800/80 border border-zinc-700/60 text-zinc-400"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -155,6 +198,7 @@ export default function BlogListPage() {
             </div>
           ))}
         </div>
+        </>
       )}
     </div>
   );

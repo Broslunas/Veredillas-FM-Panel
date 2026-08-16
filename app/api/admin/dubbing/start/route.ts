@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import dbConnect from '@/lib/mongodb';
 import EpisodeContent from '@/models/EpisodeContent';
 import { transcribeMedia, listAuraVoices } from '@/lib/deepgram';
@@ -11,7 +11,7 @@ import { addTrack } from '@/lib/dubbing/store';
 export const maxDuration = 120;
 
 export async function POST(request: Request) {
-  const { authorized } = await isAuthorizedAdmin(request);
+  const { authorized } = await isAuthorizedRoute(request);
   if (!authorized) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }

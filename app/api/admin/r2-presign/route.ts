@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isAuthorizedAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { resolveUploadDestination, getS3ClientForBucket, buildPublicUrl, getBucketUsage, R2UploadTarget } from '@/lib/r2';
@@ -7,7 +7,7 @@ import { notifyUploadBlocked } from '@/lib/storage-alerts';
 
 export async function POST(request: Request) {
   try {
-    const { authorized } = await isAuthorizedAdmin(request);
+    const { authorized } = await isAuthorizedRoute(request);
     if (!authorized) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }

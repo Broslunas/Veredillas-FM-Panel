@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { isAuthorizedOwnerOrAdmin } from '@/lib/api-guard';
+import { isAuthorizedRoute } from '@/lib/api-guard';
 import { listR2FolderContents } from '@/lib/r2';
 
 export async function GET(request: Request) {
-  const { authorized } = await isAuthorizedOwnerOrAdmin(request);
+  const { authorized } = await isAuthorizedRoute(request);
   if (!authorized) {
     return NextResponse.json({ error: 'Acceso no autorizado' }, { status: 403 });
   }
