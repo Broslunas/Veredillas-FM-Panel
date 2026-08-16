@@ -26,7 +26,10 @@ export async function GET(request: Request) {
     filter.status = status;
   }
 
-  const episodes = await EpisodeContent.find(filter).sort({ pubDate: -1, createdAt: -1 });
+  const episodes = await EpisodeContent.find(filter)
+    .select('title description slug pubDate duration image status isPremiere author season episode')
+    .sort({ pubDate: -1, createdAt: -1 })
+    .lean();
   return NextResponse.json(episodes);
 }
 
