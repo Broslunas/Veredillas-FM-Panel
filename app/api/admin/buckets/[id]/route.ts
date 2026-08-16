@@ -15,6 +15,7 @@ const AUDITABLE_FIELDS = [
   'publicUrlBase',
   'maxBytes',
   'isActive',
+  'isDefault',
 ];
 
 const VALID_TYPES: R2BucketType[] = ['images', 'multimedia', 'clips'];

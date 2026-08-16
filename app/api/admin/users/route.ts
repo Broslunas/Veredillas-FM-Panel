@@ -123,8 +123,11 @@ export async function PUT(request: Request) {
       });
     }
 
-    const { role: _roleIgnored, ...nonRoleUpdates } = updateData;
-    const otherChanges = buildFieldChanges(userBefore, nonRoleUpdates, Object.keys(nonRoleUpdates));
+    const otherChanges = buildFieldChanges(
+      userBefore,
+      updateData,
+      Object.keys(updateData).filter((key) => key !== 'role')
+    );
     if (Object.keys(otherChanges).length > 0) {
       await logAudit({
         actor: currentUser,
