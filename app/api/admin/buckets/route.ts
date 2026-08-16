@@ -6,7 +6,7 @@ import { encryptSecret } from '@/lib/encryption';
 import { serializeBucketForClient } from '@/lib/r2';
 import { logAudit } from '@/lib/audit-log';
 
-const VALID_TYPES: R2BucketType[] = ['images', 'multimedia', 'clips'];
+const VALID_TYPES: R2BucketType[] = ['images', 'multimedia', 'clips', 'social'];
 
 export async function GET(request: Request) {
   const { authorized } = await isAuthorizedOwnerOrAdmin(request);

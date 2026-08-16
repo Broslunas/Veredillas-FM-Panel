@@ -18,7 +18,7 @@ const AUDITABLE_FIELDS = [
   'isDefault',
 ];
 
-const VALID_TYPES: R2BucketType[] = ['images', 'multimedia', 'clips'];
+const VALID_TYPES: R2BucketType[] = ['images', 'multimedia', 'clips', 'social'];
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { authorized } = await isAuthorizedOwnerOrAdmin(request);

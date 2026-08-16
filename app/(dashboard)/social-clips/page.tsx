@@ -116,6 +116,8 @@ export default function SocialHighlightsStudioPage() {
         body: JSON.stringify({
           fileName: currentItem.file.name,
           contentType: currentItem.file.type,
+          folder: 'social-clips',
+          target: 'social',
         }),
       });
 
@@ -465,7 +467,7 @@ export default function SocialHighlightsStudioPage() {
                   <span>2. Subida Directa a Cloudflare R2 (S3)</span>
                 </div>
                 <p className="text-zinc-400">
-                  Los vídeos no pasan por los servidores intermedios de Node.js. Mediante URLs presignadas de alta velocidad, se envían directamente al bucket de Cloudflare R2 (`cdn.veredillasfm.es/social-clips`), lo que garantiza velocidad máxima y soporte para archivos pesados de alta resolución.
+                  Los vídeos no pasan por los servidores intermedios de Node.js. Mediante URLs presignadas de alta velocidad, se envían directamente al bucket de Cloudflare R2 `vfm-social`, guardándose como `social-clips/[archivo].[extensión]`, lo que garantiza velocidad máxima y soporte para archivos pesados de alta resolución.
                 </p>
               </div>
 

@@ -20,6 +20,7 @@ import {
   PieChart,
   FileType,
   Layers,
+  Share2,
 } from 'lucide-react';
 import BucketFileBrowser from '@/components/BucketFileBrowser';
 import { getActiveAlertThreshold, getAlertLevelForThreshold } from '@/lib/storage-alert-levels';
@@ -27,7 +28,7 @@ import { getActiveAlertThreshold, getAlertLevelForThreshold } from '@/lib/storag
 const HARD_MAX_GB = 9.2;
 const HARD_MAX_BYTES = Math.floor(HARD_MAX_GB * 1024 ** 3);
 
-type BucketType = 'images' | 'multimedia' | 'clips';
+type BucketType = 'images' | 'multimedia' | 'clips' | 'social';
 
 interface BucketItem {
   id: string;
@@ -206,6 +207,7 @@ export default function BucketsAdminPage() {
       images: buckets.filter((b) => b.type === 'images'),
       multimedia: buckets.filter((b) => b.type === 'multimedia'),
       clips: buckets.filter((b) => b.type === 'clips'),
+      social: buckets.filter((b) => b.type === 'social'),
     };
   }, [buckets]);
 
@@ -593,6 +595,17 @@ export default function BucketsAdminPage() {
           </section>
 
           <section className="space-y-3">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-200">
+              <Share2 className="w-4 h-4 text-indigo-400" /> Clips para Redes Sociales
+            </h2>
+            {grouped.social.length === 0 ? (
+              <p className="text-sm text-zinc-500">No hay buckets de este tipo todavía.</p>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">{grouped.social.map(renderBucketCard)}</div>
+            )}
+          </section>
+
+          <section className="space-y-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-200">
                 <PieChart className="w-4 h-4 text-indigo-400" /> Uso de almacenamiento por tipo de archivo
@@ -702,6 +715,7 @@ export default function BucketsAdminPage() {
                     <option value="images">Imágenes y otros</option>
                     <option value="multimedia">Multimedia (audio/vídeo)</option>
                     <option value="clips">Clips</option>
+                    <option value="social">Clips para Redes Sociales</option>
                   </select>
                 </label>
 
